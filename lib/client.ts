@@ -1,0 +1,3 @@
+export function authHeaders():Record<string,string>{const token=typeof window!=='undefined'?sessionStorage.getItem('prism-admin'):null;return token?{Authorization:'Bearer '+token}:{}}
+export async function request(path:string,method='GET',body?:unknown){const res=await fetch('/api/monitor/'+path,{method,credentials:'same-origin',headers:{'Content-Type':'application/json',...authHeaders()},...(body!==undefined?{body:JSON.stringify(body)}:{})});const data:any=await res.json();if(!res.ok)throw new Error(data.error||'请求失败');return data}
+export async function imageAsset(slot:string){const r=await fetch('/api/monitor/assets/'+slot,{headers:authHeaders(),cache:'no-store'});if(!r.ok)throw new Error('图片加载失败');return URL.createObjectURL(await r.blob())}

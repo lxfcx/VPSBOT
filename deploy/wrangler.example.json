@@ -1,0 +1,53 @@
+{
+  "name": "prism-monitor",
+  "main": "../dist/server/selfhost.js",
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "no_bundle": true,
+  "find_additional_modules": true,
+  "base_dir": "../dist/server",
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": [
+        "**/*.js",
+        "**/*.mjs"
+      ],
+      "fallthrough": true
+    }
+  ],
+  "assets": {
+    "directory": "../dist/client",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "prism-monitor",
+      "database_id": "REPLACE_WITH_YOUR_D1_ID",
+      "migrations_dir": "../drizzle"
+    }
+  ],
+  "vars": {
+    "AUTH_MODE": "token"
+  },
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": false
+  },
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "prism-files"
+    }
+  ]
+}

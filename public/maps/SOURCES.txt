@@ -1,0 +1,5 @@
+Coastline and point cloud derived from Natural Earth 1:110m land, public domain.
+https://www.naturalearthdata.com/about/terms-of-use/
+https://github.com/nvkelso/natural-earth-vector
+Flag SVGs: flag-icons (MIT), https://github.com/lipis/flag-icons
+OS logos: simple-icons (CC0), https://github.com/simple-icons/simple-icons. Brands retain their respective trademarks.

@@ -1,0 +1,20 @@
+name: Validate
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/package-agent.mjs
+      - run: pnpm exec tsc --noEmit
+      - run: node --test tests/backend.test.mjs
+      - run: python3 -m py_compile agent/*.py
+      - run: bash -n agent/install.sh agent/configure.sh agent/uninstall.sh public/agent/install.sh
+      - run: pnpm build

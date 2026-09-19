@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1789838296380,
+      "tag": "0000_tidy_imperial_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789841031943,
+      "tag": "0001_shallow_thundra",
+      "breakpoints": true
+    }
+  ]
+}
