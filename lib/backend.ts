@@ -99,6 +99,17 @@ export async function api(r: Request, path: string[]) {
     if (r.method !== 'GET' && r.headers.get('origin') && r.headers.get('origin') !== new URL(r.url).origin)
         return Response.json({ error: '跨站请求被拒绝' }, { status: 403 });
     const publicAuth=await authPublic(r,route,db(),bindings().AUTH_MODE==='token'||bindings().ADMIN_TOKEN?'token':'sites');if(publicAuth)return publicAuth;
+    if(route==='enroll'&&r.method==='POST'){
+        if(bindings().AUTH_MODE!=='token')return Response.json({error:'此部署不开放探针兑换，请使用自托管后端。'},{status:400});
+        const data=z.object({ticket:z.string().regex(/^[a-f0-9]{64}$/)}).parse(await r.json());
+        const ticket:any=await db().prepare('DELETE FROM enrollments WHERE id=? AND expires>? RETURNING server,owner').bind(await hash(data.ticket),now).first();
+        if(!ticket)return Response.json({error:'安装凭证无效、过期或已使用，请重新生成。'},{status:401});
+        const token=crypto.randomUUID()+crypto.randomUUID();
+        const updated=await db().prepare('UPDATE servers SET token=?,seen=0 WHERE id=? AND owner=?').bind(await hash(token),ticket.server,ticket.owner).run();
+        if(!updated.meta.changes)return Response.json({error:'服务器已删除'},{status:404});
+        await auditRecord(db(),ticket.owner,'security','探针安装凭证已兑换','安装凭证 '+await hash(data.ticket),ticket.server);
+        return Response.json({token,interval:10},{headers:{'Cache-Control':'no-store'}});
+    }
     if (route === 'report' && r.method === 'POST') {
         const token = bearer(r);
         if (!token)
@@ -126,7 +137,7 @@ export async function api(r: Request, path: string[]) {
         if(meta.autoGeo!==false&&(!row.seen||incomingIp&&incomingIp!==meta.ip||meta.latitude==null)) {const detected=await identify(r,row.owner);if(meta.ip&&detected.ip&&meta.ip!==detected.ip)await event(row.owner,row.id,'info',`${meta.name} · 出口 IP 变化 ${meta.ip} → ${detected.ip}`);Object.assign(meta,detected)}
         if(!meta.provider&&m.provider)meta.provider=m.provider;
         const onlineDelta=row.seen&&now-row.seen<=c.offline?Math.max(0,now-row.seen):0;
-        const changed = await db().prepare('UPDATE servers SET metrics=?,seen=?,meta=?,first_seen=CASE WHEN first_seen=0 THEN ? ELSE first_seen END,online_seconds=online_seconds+? WHERE id=? AND seen=?').bind(JSON.stringify(m), now, JSON.stringify(meta),now,onlineDelta, row.id, row.seen).run();
+        const changed = await db().prepare('UPDATE servers SET metrics=?,seen=?,meta=?,first_seen=CASE WHEN first_seen=0 THEN ? ELSE first_seen END,online_seconds=online_seconds+? WHERE id=? AND seen=? AND token=?').bind(JSON.stringify(m), now, JSON.stringify(meta),now,onlineDelta, row.id, row.seen,row.token).run();
         if (!changed.meta.changes)
             return Response.json({ ok: true, duplicate: true });
         await db().prepare('INSERT INTO samples (id,server,time,value) VALUES (?,?,?,?)').bind(crypto.randomUUID(), row.id, now, JSON.stringify(m)).run();
@@ -149,6 +160,11 @@ export async function api(r: Request, path: string[]) {
     const accountResponse=await authPrivate(r,route,db(),o,bindings().AUTH_MODE==='token'||bindings().ADMIN_TOKEN?'token':'sites');if(accountResponse)return accountResponse;
     const personal=await profileApi(r,path,db(),bindings().FILES,o,bindings().AUTH_MODE==='token'||bindings().ADMIN_TOKEN?'token':'sites');if(personal)return personal;
     if(route==='audit'&&r.method==='GET'){const u=new URL(r.url),offset=Math.max(0,Math.min(100000,Number(u.searchParams.get('offset'))||0)),category=u.searchParams.get('category');const q=category?db().prepare('SELECT * FROM audit WHERE owner=? AND category=? ORDER BY time DESC,id DESC LIMIT 100 OFFSET ?').bind(o,category,offset):db().prepare('SELECT * FROM audit WHERE owner=? ORDER BY time DESC,id DESC LIMIT 100 OFFSET ?').bind(o,offset);return Response.json((await q.all()).results)}
+    if(route==='trends'&&r.method==='GET'){
+        const rows:any=await db().prepare('SELECT server,time,value FROM samples WHERE server IN (SELECT id FROM servers WHERE owner=?) AND time>? ORDER BY time DESC LIMIT 5000').bind(o,now-1200).all();
+        const trends:Record<string,any[]>={};for(const row of rows.results){const list=trends[row.server]||=([]);if(list.length>=60)continue;const m=JSON.parse(row.value);list.push({time:row.time,cpu:m.cpu,memory:m.memory,disk:m.disk,upload:m.upload,download:m.download})}
+        for(const list of Object.values(trends))list.reverse();return Response.json(trends);
+    }
     if (route === 'servers' && r.method === 'GET') {
         const rows: any = await db().prepare('SELECT s.*,a.text as analysis_text,a.provider as analysis_provider,a.time as analysis_time,a.sample as analysis_sample FROM servers s LEFT JOIN analyses a ON a.server=s.id WHERE s.owner=? ORDER BY position,s.id').bind(o).all();
         return Response.json(rows.results.map((x: any) => ({...publicServer(x),analysis:x.analysis_text?{text:x.analysis_text,provider:x.analysis_provider,time:x.analysis_time,sample:x.analysis_sample}:null})));
@@ -169,6 +185,19 @@ export async function api(r: Request, path: string[]) {
         const row: any = await db().prepare('SELECT * FROM servers WHERE id=? AND owner=?').bind(path[1], o).first();
         if (!row)
             return Response.json({ error: '服务器不存在' }, { status: 404 });
+        if(path[2]==='enrollment'&&r.method==='GET'){
+            const id=new URL(r.url).searchParams.get('id')||'';
+            if(!/^[a-f0-9]{64}$/.test(id))return Response.json({error:'无效安装标识'},{status:400});
+            const used:any=await db().prepare("SELECT time FROM audit WHERE owner=? AND server=? AND action='探针安装凭证已兑换' AND detail=? ORDER BY time DESC LIMIT 1").bind(o,row.id,'安装凭证 '+id).first();
+            return Response.json({redeemedAt:used?.time||0,seen:row.seen});
+        }
+        if(path[2]==='enrollment'&&r.method==='POST'){
+            if(bindings().AUTH_MODE!=='token')return Response.json({error:'请在自托管后端生成安装命令；私人 Sites 地址需要浏览器登录。'},{status:400});
+            const ticket=Array.from(crypto.getRandomValues(new Uint8Array(32))).map(v=>v.toString(16).padStart(2,'0')).join(''),expires=now+900;
+            await db().batch([db().prepare('DELETE FROM enrollments WHERE server=? OR expires<?').bind(row.id,now),db().prepare('INSERT INTO enrollments(id,server,owner,expires) VALUES (?,?,?,?)').bind(await hash(ticket),row.id,o,expires)]);
+            await auditRecord(db(),o,'security','生成一次性安装命令','15 分钟有效；实际安装兑换时才轮换探针凭证',row.id);
+            return Response.json({ticket,expires,created:now,enrollmentId:await hash(ticket)},{headers:{'Cache-Control':'no-store'}});
+        }
         if(path[2]==='analyze'&&r.method==='POST')return Response.json(await refreshAnalysis(row,await config(o),true));
         if(path[2]==='renew'&&r.method==='POST'){const input=z.object({expires:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(x=>!isNaN(Date.parse(x))),amount:z.number().min(0).max(1e8),currency:z.enum(['USD','CNY','GBP','EUR','USDT','USDC']),note:z.string().max(1000)}).parse(await r.json());const meta=JSON.parse(row.meta);if(meta.expiryMode==='never')return Response.json({error:'永久有效节点不需要续期；请先修改套餐类型。'},{status:400});const next={...meta,expires:input.expires,expiryMode:'date'};await db().batch([db().prepare('UPDATE servers SET meta=? WHERE id=? AND owner=?').bind(JSON.stringify(next),row.id,o),db().prepare('INSERT INTO audit(id,owner,server,time,category,action,detail) VALUES (?,?,?,?,?,?,?)').bind(crypto.randomUUID(),o,row.id,now,'billing','记录续期',JSON.stringify({name:meta.name,oldExpires:meta.expires,...input}))]);return Response.json({ok:true})}
         if (path[2] === 'history' && r.method === 'GET') {
@@ -188,7 +217,7 @@ export async function api(r: Request, path: string[]) {
             return Response.json({ ok: true });
         }
         if (r.method === 'DELETE') {
-            await db().batch([db().prepare('DELETE FROM analyses WHERE server=?').bind(row.id),db().prepare('DELETE FROM samples WHERE server=?').bind(row.id), db().prepare('DELETE FROM events WHERE server=? AND owner=?').bind(row.id, o), db().prepare('DELETE FROM alerts WHERE id LIKE ?').bind(row.id + ':%'), db().prepare('DELETE FROM servers WHERE id=? AND owner=?').bind(row.id, o)]);
+            await db().batch([db().prepare('DELETE FROM enrollments WHERE server=?').bind(row.id),db().prepare('DELETE FROM analyses WHERE server=?').bind(row.id),db().prepare('DELETE FROM samples WHERE server=?').bind(row.id), db().prepare('DELETE FROM events WHERE server=? AND owner=?').bind(row.id, o), db().prepare('DELETE FROM alerts WHERE id LIKE ?').bind(row.id + ':%'), db().prepare('DELETE FROM servers WHERE id=? AND owner=?').bind(row.id, o)]);
             await auditRecord(db(),o,'server','删除服务器',JSON.parse(row.meta).name,row.id);
             return Response.json({ ok: true });
         }

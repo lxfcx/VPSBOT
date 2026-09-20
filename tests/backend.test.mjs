@@ -5,8 +5,8 @@ import {readFileSync,writeFileSync,rmSync,mkdirSync} from 'node:fs';
 import ts from 'typescript';
 // Compile the actual production handlers; replace only the Cloudflare environment binding.
 mkdirSync('tests/.compiled',{recursive:true});
-for(const f of ['model','accounts','profile','geo','backend']){let source=readFileSync(`lib/${f}.ts`,'utf8').replace("import { env } from 'cloudflare:workers';","const env = globalThis.TEST_ENV;").replace(/from ['"]\.\/(model|accounts|profile|geo)['"]/g,"from './$1.mjs'");writeFileSync(`tests/.compiled/${f}.mjs`,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)}
-const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0000_tidy_imperial_guard.sql','utf8'));sqlite.exec(readFileSync('drizzle/0001_shallow_thundra.sql','utf8'));
+for(const f of ['model','accounts','profile','geo','telemetry','backend']){let source=readFileSync(`lib/${f}.ts`,'utf8').replace("import { env } from 'cloudflare:workers';","const env = globalThis.TEST_ENV;").replace(/from ['"]\.\/(model|accounts|profile|geo)['"]/g,"from './$1.mjs'");writeFileSync(`tests/.compiled/${f}.mjs`,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)}
+const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0000_tidy_imperial_guard.sql','utf8'));sqlite.exec(readFileSync('drizzle/0001_shallow_thundra.sql','utf8'));sqlite.exec(readFileSync('drizzle/0002_watery_polaris.sql','utf8'));
 function statement(sql,params=[]){return {bind(...args){return statement(sql,args)},async first(){return sqlite.prepare(sql).get(...params)||null},async all(){return {results:sqlite.prepare(sql).all(...params)}},async run(){const r=sqlite.prepare(sql).run(...params);return {meta:{changes:r.changes}}}}}
 globalThis.TEST_ENV={DB:{prepare:statement,async batch(items){sqlite.exec('BEGIN');try{const out=[];for(const item of items)out.push(await item.run());sqlite.exec('COMMIT');return out}catch(e){sqlite.exec('ROLLBACK');throw e}}},AUTH_MODE:'token',ADMIN_TOKEN:'test-admin-not-a-real-secret',CRON_TOKEN:'test-cron-not-a-real-secret'};
 const {api}=await import('./.compiled/backend.mjs');
@@ -78,6 +78,31 @@ await test('Sites profile and audit ownership isolated; Sites does not accept ap
  const saved=globalThis.TEST_ENV.ADMIN_TOKEN;delete globalThis.TEST_ENV.ADMIN_TOKEN;globalThis.TEST_ENV.AUTH_MODE='sites';const user={'oai-authenticated-user-id':'other-owner','oai-authenticated-user-email':'owner@example.test'};
  assert.equal((await(await call('servers','GET',undefined,user)).json()).length,0);assert.equal((await(await call('audit','GET',undefined,user)).json()).length,0);assert.notEqual((await(await call('profile','GET',undefined,user)).json()).displayName,'监控管理员');assert.equal((await call('auth/setup','POST',{username:'attack',password:'password-password'},user)).status,400);
  globalThis.TEST_ENV.ADMIN_TOKEN=saved;globalThis.TEST_ENV.AUTH_MODE='token';
+});
+
+await test('one-use enrollment preserves current token until redeemed, then requires the new probe heartbeat',async()=>{
+ const node=await(await call('servers','POST',{name:'一键部署测试'})).json();await call('report','POST',metric,{Authorization:'Bearer '+node.token});
+ const issued=await(await call('servers/'+node.id+'/enrollment','POST')).json();assert.equal(issued.ticket.length,64);assert.notEqual(sqlite.prepare('SELECT id FROM enrollments WHERE server=?').get(node.id).id,issued.ticket);
+ older(node.id);assert.equal((await call('report','POST',metric,{Authorization:'Bearer '+node.token})).status,200);
+ const path='servers/'+node.id+'/enrollment?id='+issued.enrollmentId;assert.equal((await(await call(path)).json()).redeemedAt,0);
+ const redeemed=await call('enroll','POST',{ticket:issued.ticket},{});assert.equal(redeemed.status,200);const next=await redeemed.json();assert.equal(next.token.length,72);
+ assert.equal((await call('enroll','POST',{ticket:issued.ticket},{})).status,401);assert.equal((await call('report','POST',metric,{Authorization:'Bearer '+node.token})).status,401);
+ let status=await(await call(path)).json();assert.ok(status.redeemedAt>0);assert.equal(status.seen,0);
+ assert.equal((await call('report','POST',metric,{Authorization:'Bearer '+next.token})).status,200);status=await(await call(path)).json();assert.ok(status.seen>=status.redeemedAt);
+ await assert.rejects(()=>call('servers/'+node.id+'/enrollment','POST',undefined,{}),/UNAUTHORIZED/);
+ const a=await(await call('servers/'+node.id+'/enrollment','POST')).json(),b=await(await call('servers/'+node.id+'/enrollment','POST')).json();assert.equal((await call('enroll','POST',{ticket:a.ticket},{})).status,401);
+ sqlite.prepare('UPDATE enrollments SET expires=0 WHERE server=?').run(node.id);assert.equal((await call('enroll','POST',{ticket:b.ticket},{})).status,401);
+ await call('servers/'+node.id,'DELETE');assert.equal(sqlite.prepare('SELECT count(*) n FROM enrollments WHERE server=?').get(node.id).n,0);
+});
+await test('trends expose real persisted samples only, in time order and without credentials',async()=>{
+ const trends=await(await call('trends')).json();assert.ok(trends[second.id].length>0);assert.ok(trends[second.id].every(p=>p.upload===metric.upload));assert.equal(trends[second.id][0].token,undefined);assert.ok(trends[second.id].length<=60);
+ const token=globalThis.TEST_ENV.ADMIN_TOKEN;delete globalThis.TEST_ENV.ADMIN_TOKEN;globalThis.TEST_ENV.AUTH_MODE='sites';assert.deepEqual(await(await call('trends','GET',undefined,{'oai-authenticated-user-id':'isolated','oai-authenticated-user-email':'isolated@example.com'})).json(),{});globalThis.TEST_ENV.ADMIN_TOKEN=token;globalThis.TEST_ENV.AUTH_MODE='token';
+});
+await test('globe coordinate picking round-trips rotation and rejects space; history stays bounded and deduplicated',async()=>{
+ const {unproject,distanceKm,addSample,rateScale}=await import('./.compiled/telemetry.mjs');
+ for(const [lat,lon] of [[0,0],[35,139],[-33,-70],[80,170]]){const p=unproject(200,200,200,200,150,-lon*Math.PI/180,lat*Math.PI/180);assert.ok(Math.abs(p.latitude-lat)<1e-6);assert.ok(Math.abs(p.longitude-lon)<1e-6)}
+ assert.equal(unproject(0,0,200,200,150,0,0),null);assert.ok(Math.abs(distanceKm({latitude:0,longitude:0},{latitude:0,longitude:180})-20015)<2);
+ let points=[];for(let i=0;i<70;i++)points=addSample(points,{time:i,upload:i});assert.equal(points.length,60);points=addSample(points,{time:69,upload:999});assert.equal(points.length,60);assert.equal(points.at(-1).upload,999);assert.deepEqual(rateScale(0,[0]),{peak:0,percent:0});assert.deepEqual(rateScale(50,[100,80]),{peak:100,percent:50});
 });
 
 sqlite.close();rmSync('tests/.compiled',{recursive:true});

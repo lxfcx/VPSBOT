@@ -15,6 +15,13 @@
       "when": 1789841031943,
       "tag": "0001_shallow_thundra",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789879601468,
+      "tag": "0002_watery_polaris",
+      "breakpoints": true
     }
   ]
 }
