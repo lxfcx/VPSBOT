@@ -95,7 +95,7 @@ await test('one-use enrollment preserves current token until redeemed, then requ
  await call('servers/'+node.id,'DELETE');assert.equal(sqlite.prepare('SELECT count(*) n FROM enrollments WHERE server=?').get(node.id).n,0);
 });
 await test('trends expose real persisted samples only, in time order and without credentials',async()=>{
- const trends=await(await call('trends')).json();assert.ok(trends[second.id].length>0);assert.ok(trends[second.id].every(p=>p.upload===metric.upload));assert.equal(trends[second.id][0].token,undefined);assert.ok(trends[second.id].length<=60);
+ const trends=await(await call('trends')).json();assert.ok(trends[second.id].length>0);assert.ok(trends[second.id].every(p=>p.upload===metric.upload));assert.equal(trends[second.id][0].token,undefined);assert.ok(trends[second.id].length<=60);assert.deepEqual(trends[second.id][0].checks,metric.checks);
  const token=globalThis.TEST_ENV.ADMIN_TOKEN;delete globalThis.TEST_ENV.ADMIN_TOKEN;globalThis.TEST_ENV.AUTH_MODE='sites';assert.deepEqual(await(await call('trends','GET',undefined,{'oai-authenticated-user-id':'isolated','oai-authenticated-user-email':'isolated@example.com'})).json(),{});globalThis.TEST_ENV.ADMIN_TOKEN=token;globalThis.TEST_ENV.AUTH_MODE='token';
 });
 await test('globe coordinate picking round-trips rotation and rejects space; history stays bounded and deduplicated',async()=>{
@@ -105,4 +105,18 @@ await test('globe coordinate picking round-trips rotation and rejects space; his
  let points=[];for(let i=0;i<70;i++)points=addSample(points,{time:i,upload:i});assert.equal(points.length,60);points=addSample(points,{time:69,upload:999});assert.equal(points.length,60);assert.equal(points.at(-1).upload,999);assert.deepEqual(rateScale(0,[0]),{peak:0,percent:0});assert.deepEqual(rateScale(50,[100,80]),{peak:100,percent:50});
 });
 
+await test('branding persists, old profile writes preserve it, invalid names are rejected and owners remain isolated',async()=>{
+ const initial=await(await call('profile')).json();assert.equal(initial.platformName,'全球VPS联动观察');
+ await call('profile','PUT',{...initial,platformName:'我的全球观察台',documentTitle:'节点监控',overviewTitle:'我的总览',pageTitles:{...initial.pageTitles,servers:'我的节点'}});
+ await call('profile','PUT',{displayName:'管理员',bio:'',theme:'dark',backgroundOpacity:.3});
+ const saved=await(await call('profile')).json();assert.equal(saved.platformName,'我的全球观察台');assert.equal(saved.pageTitles.servers,'我的节点');
+ await assert.rejects(()=>call('profile','PUT',{...saved,platformName:' '}));
+ const token=globalThis.TEST_ENV.ADMIN_TOKEN;delete globalThis.TEST_ENV.ADMIN_TOKEN;globalThis.TEST_ENV.AUTH_MODE='sites';
+ try{const other=await(await call('profile','GET',undefined,{'oai-authenticated-user-id':'another-owner','oai-authenticated-user-email':'owner@example.com'})).json();assert.equal(other.platformName,'全球VPS联动观察')}finally{globalThis.TEST_ENV.ADMIN_TOKEN=token;globalThis.TEST_ENV.AUTH_MODE='token'}
+ const {telegramMessage}=await import('./.compiled/backend.mjs');assert.ok(telegramMessage({time:1,message:'恢复'},null,'',saved.platformName).includes(saved.platformName));
+});
+await test('opaque globe hides rear routes inside silhouette and retains raised arcs outside it',async()=>{
+ const {sphereVisible}=await import('./.compiled/telemetry.mjs');
+ assert.equal(sphereVisible(0,0,-1),false);assert.equal(sphereVisible(.7,.3,-.5),false);assert.equal(sphereVisible(0,0,1),true);assert.equal(sphereVisible(1.1,0,-.3),true);assert.equal(sphereVisible(0,-1.2,-.1),true);
+});
 sqlite.close();rmSync('tests/.compiled',{recursive:true});

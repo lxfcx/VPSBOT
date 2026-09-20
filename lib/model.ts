@@ -116,6 +116,7 @@ export function health(s:Server,c:any=defaults,now=Date.now()/1000):Health{
  const critical=['cpu','memory','disk','swap'].some(k=>(m as any)[k]>=100)||m.disks?.some(d=>d.percent>=100);
  return {level:critical?'critical':issues.length?'warning':'healthy',title:critical?'资源已满载':issues.length?'需要关注':'运行健康',text:issues.length?issues.join('；')+'。建议检查相关进程、配额或续费。':'资源使用、连接探测与心跳均未触发当前阈值。',issues,score:Math.max(0,100-issues.length*15-(critical?30:0))};
 }
-export type Profile={displayName:string;bio:string;theme:'dark'|'light'|'system';avatar:boolean;background:boolean;backgroundOpacity:number;authMode:string;username?:string;passwordConfigured?:boolean};
-export const defaultProfile:Profile={displayName:'Personal workspace',bio:'每一次心跳，都清晰可见。',theme:'dark',avatar:false,background:false,backgroundOpacity:.35,authMode:'sites'};
+export const defaultTitles={overview:'总览',servers:'服务器',alerts:'告警中心',billing:'账单与到期',ai:'AI 洞察',audit:'操作记录'};
+export type Profile={platformName:string;documentTitle:string;overviewTitle:string;platformSubtitle:string;pageTitles:typeof defaultTitles;displayName:string;bio:string;theme:'dark'|'light'|'system';avatar:boolean;background:boolean;backgroundOpacity:number;authMode:string;username?:string;passwordConfigured?:boolean};
+export const defaultProfile:Profile={platformName:'全球VPS联动观察',documentTitle:'全球VPS联动观察',overviewTitle:'全球VPS联动观察',platformSubtitle:'全球服务器实时监测',pageTitles:defaultTitles,displayName:'Personal workspace',bio:'每一次心跳，都清晰可见。',theme:'dark',avatar:false,background:false,backgroundOpacity:.35,authMode:'sites'};
 export function nextExpiry(meta:Meta){const current=meta.expires&&Date.parse(meta.expires)>Date.now()?new Date(meta.expires+'T12:00:00Z'):new Date();const day=current.getUTCDate(),month=current.getUTCMonth()+meta.cycle,year=current.getUTCFullYear();return new Date(Date.UTC(year,month,Math.min(day,new Date(Date.UTC(year,month+1,0)).getUTCDate()),12)).toISOString().slice(0,10)}

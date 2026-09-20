@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Prism · 玻璃探针",
+  title: "全球VPS联动观察",
   description: "全球服务器实时监控、智能告警与账单管理。",
   other: {
     "codex-preview": "development",
