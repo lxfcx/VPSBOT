@@ -59,8 +59,33 @@ def probe(target):
             ms = round((time.monotonic() - start) * 1000, 2)
     except OSError:
         ms = None
-    HISTORY[name].append(ms is None)
-    return {'name': name, 'ms': ms, 'loss': round(sum(HISTORY[name]) / len(HISTORY[name]) * 100, 2)}
+    key = (target.get('carrier', ''), name, host, port)
+    HISTORY[key].append(ms is None)
+    result = {'name': name, 'ms': ms, 'loss': round(sum(HISTORY[key]) / len(HISTORY[key]) * 100, 2)}
+    if target.get('carrier') in ('telecom', 'unicom', 'mobile'):
+        result.update(carrier=target['carrier'], target=f'{host}:{port}')
+    return result
+
+def remote_targets(base, incoming):
+    # Bounded TCP endpoints only; never execute commands supplied by the panel.
+    if not isinstance(incoming, list) or len(incoming) > 3:
+        return None
+    clean, seen = [], set()
+    for item in incoming:
+        if not isinstance(item, dict): return None
+        carrier, host, port = item.get('carrier'), item.get('host', ''), item.get('port', 443)
+        if carrier not in ('telecom', 'unicom', 'mobile') or carrier in seen: return None
+        if not isinstance(host, str) or not 1 <= len(host) <= 253 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:' for c in host): return None
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535: return None
+        name = item.get('name', carrier)
+        if not isinstance(name, str) or not 1 <= len(name) <= 30: return None
+        seen.add(carrier)
+        clean.append({'carrier': carrier, 'host': host, 'port': port, 'name': name})
+    combined = [t for t in base if not t.get('carrier')][:7] + clean
+    active = {(t.get('carrier', ''), t['name'], t['host'], int(t.get('port', 443))) for t in combined}
+    for key in list(HISTORY):
+        if key not in active: del HISTORY[key]
+    return combined
 
 def snapshot(previous, targets):
     ticks = cpu_ticks(); net = net_bytes(); stamp = time.monotonic()
@@ -122,6 +147,7 @@ def main():
                                     {'name': 'Cloudflare', 'host': 'www.cloudflare.com'},
                                     {'name': 'Apple', 'host': 'www.apple.com'}])
     opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    base_targets = list(targets)
     previous = {'ticks': cpu_ticks(), 'net': net_bytes(), 'stamp': time.monotonic()}
     signal.signal(signal.SIGTERM, lambda *_: stop())
     signal.signal(signal.SIGINT, lambda *_: stop())
@@ -136,7 +162,10 @@ def main():
             with opener.open(req, timeout=25) as response:
                 if response.status != 200:
                     raise OSError('Unexpected response')
-                json.loads(response.read(4096))
+                reply = json.loads(response.read(8192))
+                if 'networkTargets' in reply:
+                    updated = remote_targets(base_targets, reply['networkTargets'])
+                    if updated is not None: targets = updated
             failures = 0
         except (OSError, ValueError, urllib.error.HTTPError):
             failures += 1  # No payloads, secrets, persistent logs or local cache.

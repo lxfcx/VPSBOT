@@ -1,3 +1,5 @@
+export type Carrier='telecom'|'unicom'|'mobile';
+export type NetworkTarget={carrier:Carrier;name:string;host:string;port:number};
 export type Metrics = {
     cpu: number;
     memory: number;
@@ -26,6 +28,8 @@ export type Metrics = {
         name: string;
         ms: number | null;
         loss: number;
+        carrier?:Carrier;
+        target?:string;
     }[];
     disks?: {
         path: string;
@@ -35,6 +39,7 @@ export type Metrics = {
     }[];
 };
 export type Meta = {
+    networkTargets?:NetworkTarget[];
     name: string;
     group: string;
     country: string;

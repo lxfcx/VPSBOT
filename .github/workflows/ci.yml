@@ -15,6 +15,7 @@ jobs:
       - run: node scripts/package-agent.mjs
       - run: pnpm exec tsc --noEmit
       - run: node --test tests/backend.test.mjs
+      - run: python3 tests/agent-network.test.py
       - run: python3 -m py_compile agent/*.py
       - run: bash -n agent/install.sh agent/configure.sh agent/uninstall.sh public/agent/install.sh
       - run: pnpm build

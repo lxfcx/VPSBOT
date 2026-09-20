@@ -5,7 +5,7 @@ import {readFileSync,writeFileSync,rmSync,mkdirSync} from 'node:fs';
 import ts from 'typescript';
 // Compile the actual production handlers; replace only the Cloudflare environment binding.
 mkdirSync('tests/.compiled',{recursive:true});
-for(const f of ['model','accounts','profile','geo','telemetry','backend']){let source=readFileSync(`lib/${f}.ts`,'utf8').replace("import { env } from 'cloudflare:workers';","const env = globalThis.TEST_ENV;").replace(/from ['"]\.\/(model|accounts|profile|geo)['"]/g,"from './$1.mjs'");writeFileSync(`tests/.compiled/${f}.mjs`,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)}
+for(const f of ['model','accounts','profile','geo','telemetry','network','backend']){let source=readFileSync(`lib/${f}.ts`,'utf8').replace("import { env } from 'cloudflare:workers';","const env = globalThis.TEST_ENV;").replace(/from ['"]\.\/(model|accounts|profile|geo|telemetry)['"]/g,"from './$1.mjs'");writeFileSync(`tests/.compiled/${f}.mjs`,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)}
 const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0000_tidy_imperial_guard.sql','utf8'));sqlite.exec(readFileSync('drizzle/0001_shallow_thundra.sql','utf8'));sqlite.exec(readFileSync('drizzle/0002_watery_polaris.sql','utf8'));
 function statement(sql,params=[]){return {bind(...args){return statement(sql,args)},async first(){return sqlite.prepare(sql).get(...params)||null},async all(){return {results:sqlite.prepare(sql).all(...params)}},async run(){const r=sqlite.prepare(sql).run(...params);return {meta:{changes:r.changes}}}}}
 globalThis.TEST_ENV={DB:{prepare:statement,async batch(items){sqlite.exec('BEGIN');try{const out=[];for(const item of items)out.push(await item.run());sqlite.exec('COMMIT');return out}catch(e){sqlite.exec('ROLLBACK');throw e}}},AUTH_MODE:'token',ADMIN_TOKEN:'test-admin-not-a-real-secret',CRON_TOKEN:'test-cron-not-a-real-secret'};
@@ -118,5 +118,24 @@ await test('branding persists, old profile writes preserve it, invalid names are
 await test('opaque globe hides rear routes inside silhouette and retains raised arcs outside it',async()=>{
  const {sphereVisible}=await import('./.compiled/telemetry.mjs');
  assert.equal(sphereVisible(0,0,-1),false);assert.equal(sphereVisible(.7,.3,-.5),false);assert.equal(sphereVisible(0,0,1),true);assert.equal(sphereVisible(1.1,0,-.3),true);assert.equal(sphereVisible(0,-1.2,-.1),true);
+});
+await test('carrier target configuration is validated, delivered only to its node, and persists typed real samples',async()=>{
+ const target={carrier:'telecom',name:'授权电信测点',host:'example.com',port:443};
+ const a=await(await call('servers','POST',{name:'三网测试',networkTargets:[target]})).json();
+ await assert.rejects(()=>call('servers/'+a.id,'PATCH',{networkTargets:[target,target]}));
+ await assert.rejects(()=>call('servers/'+a.id,'PATCH',{networkTargets:[{...target,host:'https://example.com/path'}]}));
+ const check={name:target.name,carrier:target.carrier,target:'example.com:443',ms:88,loss:5};
+ const response=await(await call('report','POST',{...metric,checks:[check]},{Authorization:'Bearer '+a.token})).json();assert.deepEqual(response.networkTargets,[target]);
+ const samples=await(await call('servers/'+a.id+'/history')).json();assert.deepEqual(samples.at(-1).checks,[check]);
+ const other=await(await call('servers','POST',{name:'隔离'})).json();assert.deepEqual((await(await call('report','POST',metric,{Authorization:'Bearer '+other.token})).json()).networkTargets,[]);
+ await call('servers/'+a.id,'PATCH',{networkTargets:[]});older(a.id);assert.deepEqual((await(await call('report','POST',metric,{Authorization:'Bearer '+a.token})).json()).networkTargets,[]);
+});
+await test('carrier plots never mix replaced endpoints or bridge failures and missing heartbeats',async()=>{
+ const {carrierSamples,latencyStats,latencyPath}=await import('./.compiled/network.mjs');
+ const check=ms=>({name:'test',carrier:'telecom',target:'example.com:443',ms,loss:0});
+ const points=[{time:10,check:check(10)},{time:20,check:check(30)},{time:30,check:check(null)},{time:40,check:check(100)},{time:90,check:check(90)}];
+ assert.equal(latencyStats(points).jitter,20);assert.equal(latencyStats(points).count,5);assert.equal(latencyStats([]).avg,null);
+ const path=latencyPath(points,0,100,120);assert.equal((path.match(/M/g)||[]).length,3);assert.equal((path.match(/L/g)||[]).length,1);
+ assert.equal(carrierSamples([{time:20,checks:[check(50)]}],{carrier:'telecom',host:'changed.example',port:443},600,100)[0].check,undefined);
 });
 sqlite.close();rmSync('tests/.compiled',{recursive:true});
