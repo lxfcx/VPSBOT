@@ -1,0 +1,11 @@
+import {build} from 'vite';
+import react from '@vitejs/plugin-react';
+import {fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
+import {mkdir,cp} from 'node:fs/promises';
+const root=fileURLToPath(new URL('../',import.meta.url));
+await build({configFile:false,root:resolve(root,'vps/frontend'),publicDir:resolve(root,'public'),plugins:[react()],resolve:{alias:{'@':root}},css:{postcss:resolve(root)},build:{outDir:resolve(root,'dist-vps/public'),emptyOutDir:true}});
+await build({configFile:false,root,resolve:{alias:{'cloudflare:workers':resolve(root,'vps/env.ts')}},build:{ssr:'lib/backend.ts',target:'node24',outDir:resolve(root,'dist-vps/backend'),emptyOutDir:true,rollupOptions:{output:{entryFileNames:'api.mjs'}}},ssr:{noExternal:true}});
+await mkdir(resolve(root,'dist-vps/migrations'),{recursive:true});
+await cp(resolve(root,'drizzle'),resolve(root,'dist-vps/migrations'),{recursive:true});
+for(const name of ['server.mjs','storage.mjs'])await cp(resolve(root,'vps',name),resolve(root,'dist-vps',name));

@@ -51,3 +51,7 @@ __pycache__/
 tests/.compiled/
 deploy/wrangler.json
 .dev.vars*
+
+/dist-vps/
+/data/
+/backups/

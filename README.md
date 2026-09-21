@@ -1,10 +1,23 @@
 # 全球VPS联动观察
 
-中文服务器监控应用：React / TypeScript 前端、Cloudflare Workers 后端、D1 数据库，以及仅依赖 Python 标准库的 Linux 探针。
+中文服务器监控应用：React / TypeScript 前端、独立 Node.js + SQLite 后端（另保留 Cloudflare Workers / D1 版本），以及仅依赖 Python 标准库的 Linux 探针。
 
-这是独立实现的 **v0.5**，不是 Komari fork，不宣称与 Komari 的全部功能或协议兼容。界面参考用户提供的卡片布局，包含日夜玻璃主题、动态节点地球、三种卡片视图与实时分段进度条。
+这是独立实现的 **v0.6**，不是 Komari fork，不宣称与 Komari 的全部功能或协议兼容。界面参考用户提供的卡片布局，包含日夜玻璃主题、动态节点地球、三种卡片视图与实时分段进度条。
 
-## 本次更新（v0.5）
+作者：[lxfcx](https://github.com/lxfcx) · 联系 TG：[@LXFCX6](https://t.me/LXFCX6)
+
+## 首选部署：自己的 VPS
+
+**[打开完整 VPS 部署教程](docs/VPS_DEPLOYMENT.zh-CN.md)**：Docker Compose + Caddy HTTPS，一台主机运行面板、SQLite 和图片存储，其余主机装探针。无需 Cloudflare 授权。
+
+## 本次更新（v0.6）
+
+- 日夜主题改为中性玻璃底色，增强文字对比与字重；探测名称/数值在上，历史条在下。
+- 独立 Node 24 后端复用监控、登录、TG/AI、安装凭证接口；数据库迁移、上传持久化、每分钟后台离线检查。
+- 提供 Dockerfile、Compose、HTTPS 配置和备份恢复教程。
+- 构建独立版本：`pnpm build:vps`；后端要求 `PUBLIC_URL`、`ADMIN_TOKEN` 和持久化 `DATA_DIR`，推荐直接使用教程中的 Compose。
+
+## 前次更新（v0.5）
 
 - 点击地球节点或国旗直接打开实时详情，同位置节点可选择；详情展示 CPU、内存、磁盘、负载、上传下载，并每 10 秒刷新历史。
 - 总览与详情新增三网线路面板：电信 / 联通 / 移动独立配色、5 / 10 分钟窗口、悬浮取值、曲线显隐、最新 TCP 延迟、相邻成功采样抖动、最低 / 最高 / 均值、最近 20 次 TCP 连接失败率。超时和心跳缺口不连线，更换测点不会混入旧目标采样。
