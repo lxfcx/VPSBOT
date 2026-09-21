@@ -138,4 +138,26 @@ await test('carrier plots never mix replaced endpoints or bridge failures and mi
  const path=latencyPath(points,0,100,120);assert.equal((path.match(/M/g)||[]).length,3);assert.equal((path.match(/L/g)||[]).length,1);
  assert.equal(carrierSamples([{time:20,checks:[check(50)]}],{carrier:'telecom',host:'changed.example',port:443},600,100)[0].check,undefined);
 });
+await test('green meters flag full values and thresholds without treating missing data as an alarm',async()=>{
+ const {meterState}=await import('./.compiled/telemetry.mjs');
+ assert.deepEqual(meterState(0,80),{percent:0,full:false,warning:false});
+ assert.equal(meterState(79.9,80).warning,false);
+ assert.equal(meterState(80,80).warning,true);
+ assert.deepEqual(meterState(125,101),{percent:100,full:true,warning:true});
+ assert.deepEqual(meterState(NaN,80),{percent:0,full:false,warning:false});
+});
+await test('AI results, cached per-node analysis and error fallback remain honest',async()=>{
+ await call('settings','PUT',{aiEnabled:true,aiKey:'test-key-not-real',autoAI:false});
+ globalThis.fetch=async()=>Response.json({choices:[{message:{content:'测试 AI 健康说明'}}]});
+ const summary=await(await call('analyze','POST')).json();assert.equal(summary.provider,'ai');assert.equal(summary.text,'测试 AI 健康说明');
+ const rows=await(await call('servers')).json();const id=rows[0].id;
+ assert.equal((await(await call('servers/'+id+'/analyze','POST')).json()).provider,'ai');
+ assert.equal((await(await call('servers')).json()).find(x=>x.id===id).analysis.text,'测试 AI 健康说明');
+ globalThis.fetch=async()=>new Response('Unavailable',{status:503});
+ await assert.rejects(()=>call('analyze','POST'),/AI 服务暂不可用/);
+ assert.equal((await(await call('servers/'+id+'/analyze','POST')).json()).provider,'ai'); // 30-second cache is intentional.
+ sqlite.prepare('UPDATE analyses SET time=time-31 WHERE server=?').run(id);
+ const fallback=await(await call('servers/'+id+'/analyze','POST')).json();assert.equal(fallback.provider,'rules');assert.match(fallback.text,/AI 暂不可用/);
+ await call('settings','PUT',{aiEnabled:false});
+});
 sqlite.close();rmSync('tests/.compiled',{recursive:true});

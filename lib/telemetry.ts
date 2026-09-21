@@ -9,3 +9,5 @@ export function unproject(x:number,y:number,cx:number,cy:number,r:number,rotatio
 
 // An elevated rear arc is visible only outside the opaque globe silhouette.
 export function sphereVisible(x:number,y:number,z:number){return z>=0||x*x+y*y>1.0001}
+
+export function meterState(value:number,threshold=100){const valid=Number.isFinite(value),percent=valid?Math.min(100,Math.max(0,value)):0;return {percent,full:valid&&value>=100,warning:valid&&(value>=100||value>=threshold)}}

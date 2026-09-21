@@ -1,6 +1,6 @@
 import {Carrier,Metrics,NetworkTarget} from './model';
 import {Sample} from './telemetry';
-export const carriers: {id:Carrier;name:string;color:string}[]=[{id:'telecom',name:'中国电信',color:'#67a9fa'},{id:'unicom',name:'中国联通',color:'#f0799e'},{id:'mobile',name:'中国移动',color:'#47cdb3'}];
+export const carriers: {id:Carrier;name:string;color:string}[]=[{id:'telecom',name:'中国电信',color:'#42c780'},{id:'unicom',name:'中国联通',color:'#9acd42'},{id:'mobile',name:'中国移动',color:'#2baa68'}];
 export function carrierSamples(history:Sample[],target:NetworkTarget,seconds:number,now:number){return history.filter(s=>s.time>=now-seconds&&s.time<=now).map(s=>({time:s.time,check:s.checks?.find(c=>c.carrier===target.carrier&&c.target===`${target.host}:${target.port}`)}));}
 export function latencyStats(points:{time:number;check?:Metrics['checks'][number]}[]){const values=points.flatMap(p=>p.check?.ms!=null?[p.check.ms]:[]),deltas:number[]=[];for(let i=1;i<points.length;i++){const a=points[i-1],b=points[i];if(a.check?.ms!=null&&b.check?.ms!=null&&b.time-a.time<=30)deltas.push(Math.abs(a.check.ms-b.check.ms))}return {count:points.filter(p=>p.check).length,min:values.length?Math.min(...values):null,max:values.length?Math.max(...values):null,avg:values.length?values.reduce((a,b)=>a+b,0)/values.length:null,jitter:deltas.length?deltas.reduce((a,b)=>a+b,0)/deltas.length:null};}
 // Break on failures, missing samples and heartbeat gaps, rather than draw through an outage.
