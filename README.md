@@ -2,15 +2,42 @@
 
 中文服务器监控应用：React / TypeScript 前端、独立 Node.js + SQLite 后端（另保留 Cloudflare Workers / D1 版本），以及仅依赖 Python 标准库的 Linux 探针。
 
-这是独立实现的 **v0.7.2**，不是 Komari fork，不宣称与 Komari 的全部功能或协议兼容。界面参考用户提供的卡片布局，包含日夜玻璃主题、动态节点地球、三种卡片视图与实时分段进度条。
+这是独立实现的 **v0.8.0**，不是 Komari fork，不宣称与 Komari 的全部功能或协议兼容。界面参考用户提供的卡片布局，包含日夜玻璃主题、动态节点地球、三种卡片视图与实时分段进度条。
 
 作者：[lxfcx](https://github.com/lxfcx) · 联系 TG：[@LXFCX6](https://t.me/LXFCX6)
 
-## 首选部署：自己的 VPS
+## SSH 一键部署（推荐）
+
+先把域名指向服务器并放行 TCP 80/443。在 SSH 执行以下一行，按提示输入域名：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lxfcx/VPSBOT/main/deploy/vps/manage.sh -o vpsbot-install.sh && sudo bash vpsbot-install.sh install && rm -f vpsbot-install.sh
+```
+
+首次账号 **admin**，密码 **123456**，首次登录需修改默认密码；以后在个人信息中修改账号密码。
+
+```bash
+sudo vpsbot update               # 更新（自动备份，不重置密码）
+sudo vpsbot status               # 运行状态
+sudo vpsbot logs                 # 日志，Ctrl+C 退出
+sudo vpsbot restart              # 重启
+sudo vpsbot backup               # 备份
+sudo vpsbot uninstall --yes      # 删除本面板与全部项目数据/备份，不可恢复
+```
+
+[极简安装与命令说明](docs/QUICKSTART.zh-CN.md)
+
+## 手动部署与兼容说明
 
 **[打开完整 VPS 部署教程](docs/VPS_DEPLOYMENT.zh-CN.md)**：Docker Compose + Caddy HTTPS，一台主机运行面板、SQLite 和图片存储，其余主机装探针。无需 Cloudflare 授权。
 
-## 本次更新（v0.7.2）
+## 本次更新（v0.8.0）
+
+- SSH 一行安装，统一 `vpsbot` 更新、备份、状态、日志、重启与项目范围卸载。
+- 自托管入口为账号密码登录页，空账号库初始化 admin / 123456，首次登录须修改密码。
+- 个人信息支持账号与密码修改，更新和重启不重置已有账号。
+
+## 前次更新（v0.7.2）
 
 - 保留淡紫色日夜主题及分色进度条，满载红色警告。
 - 部署教程补齐 Debian / Ubuntu / CentOS；提供自动选择 Docker 安装入口及只读宿主检查。

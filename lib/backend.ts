@@ -159,6 +159,7 @@ export async function api(r: Request, path: string[]) {
     }
     const o = await owner(r);
     const accountResponse=await authPrivate(r,route,db(),o,bindings().AUTH_MODE==='token'||bindings().ADMIN_TOKEN?'token':'sites');if(accountResponse)return accountResponse;
+    if(bindings().AUTH_MODE==='token'&&!(bindings().ADMIN_TOKEN&&await hash(bearer(r))===await hash(bindings().ADMIN_TOKEN!))){const account:any=await db().prepare('SELECT changed FROM accounts WHERE owner=?').bind(o).first();if(account?.changed===0)return Response.json({error:'请先修改默认密码',code:'PASSWORD_CHANGE_REQUIRED'},{status:403})}
     const personal=await profileApi(r,path,db(),bindings().FILES,o,bindings().AUTH_MODE==='token'||bindings().ADMIN_TOKEN?'token':'sites');if(personal)return personal;
     if(route==='audit'&&r.method==='GET'){const u=new URL(r.url),offset=Math.max(0,Math.min(100000,Number(u.searchParams.get('offset'))||0)),category=u.searchParams.get('category');const q=category?db().prepare('SELECT * FROM audit WHERE owner=? AND category=? ORDER BY time DESC,id DESC LIMIT 100 OFFSET ?').bind(o,category,offset):db().prepare('SELECT * FROM audit WHERE owner=? ORDER BY time DESC,id DESC LIMIT 100 OFFSET ?').bind(o,offset);return Response.json((await q.all()).results)}
     if(route==='trends'&&r.method==='GET'){

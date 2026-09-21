@@ -3,7 +3,7 @@ import {readFile,stat} from 'node:fs/promises';
 import {resolve,extname,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {isIP} from 'node:net';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,pbkdf2Sync} from 'node:crypto';
 import {openStorage} from './storage.mjs';
 const root=fileURLToPath(new URL('.',import.meta.url));
 const publicRoot=resolve(root,'public');
@@ -12,6 +12,12 @@ if(admin.length<32)throw new Error('ADMIN_TOKEN must contain at least 32 charact
 const origin=new URL(process.env.PUBLIC_URL||'');
 if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)throw new Error('PUBLIC_URL must be an HTTPS origin, e.g. https://monitor.example.com');
 const storage=openStorage(resolve(process.env.DATA_DIR||'data'),resolve(root,'migrations'));
+// Bootstrap only an empty account store. Updates never overwrite a user's credentials.
+if(!storage.sqlite.prepare("SELECT owner FROM accounts WHERE owner='admin'").get()){
+ const salt=randomBytes(32).toString('hex');
+ const password=pbkdf2Sync('123456',salt,100000,32,'sha256').toString('hex');
+ storage.sqlite.prepare('INSERT OR IGNORE INTO accounts(owner,username,salt,password,changed) VALUES (?,?,?,?,0)').run('admin','admin',salt,password);
+}
 const cron=randomBytes(32).toString('hex');
 globalThis.VPS_ENV={DB:storage.DB,FILES:storage.FILES,AUTH_MODE:'token',ADMIN_TOKEN:admin,CRON_TOKEN:cron};
 const {api}=await import('./backend/api.mjs');
