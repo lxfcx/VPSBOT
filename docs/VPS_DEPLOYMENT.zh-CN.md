@@ -2,11 +2,11 @@
 
 作者：[lxfcx](https://github.com/lxfcx) · 联系 TG：[@LXFCX6](https://t.me/LXFCX6)
 
-本教程对应 v0.6 独立服务器版本。前端、API、SQLite 数据库、头像/背景存储都在自己的 VPS；不需要 Cloudflare Workers、D1、R2 或 Cloudflare Token。原 Cloudflare 部署先放一边。
+本教程适用于独立服务器版本，已补充 Debian / CentOS 分支。前端、API、SQLite 数据库、头像/背景存储都在自己的 VPS；不需要 Cloudflare Workers、D1、R2 或 Cloudflare Token。原 Cloudflare 部署先放一边。
 
 ## 1. 准备
 
-- 一台 Linux VPS：以下安装命令以 **Ubuntu 24.04 LTS** 为例，root 或 sudo 权限；建议 2 核、2GB 内存、10GB 可用磁盘用于构建和数据。小内存机器可在另一台机器构建镜像再传入。
+- 一台 Linux VPS：提供 **Debian、Ubuntu、CentOS** 安装分支，root 或 sudo 权限；建议 2 核、2GB 内存、10GB 可用磁盘用于构建和数据。小内存机器可在另一台机器构建镜像再传入。
 - 一个域名，例如 `monitor.example.com`，A 记录指向面板 VPS 公网 IPv4。有可用 IPv6 才添加 AAAA。先使用直连 DNS，避免代理影响真实来源 IP。
 - 云厂商安全组允许 TCP 80、443 和自己的 SSH 端口；UDP 443 可选。3000 和数据库无需对公网开放。本 Compose 仅发布 Caddy 的 80/443。
 - 服务器能访问 GitHub、npm、Docker 镜像仓库。需要 TG/AI 时，还需访问 Telegram 和所配置的 AI 服务。
@@ -14,9 +14,87 @@
 
 Caddy 会自动申请/续期证书，前提是域名解析正确、验证端口可达。详见 [Caddy 自动 HTTPS](https://caddyserver.com/docs/automatic-https)。首次登录必须使用 HTTPS，账号 Cookie 带 Secure 属性。
 
-## 2. 安装 Docker 和 Compose
+## 2. 按系统安装 Docker 和 Compose
 
-已有 Docker 且 `sudo docker compose version` 正常，可跳过。本段为新 Ubuntu 主机；Debian 请使用 [Docker Debian 安装说明](https://docs.docker.com/engine/install/debian/)，不要照搬 Ubuntu 软件源。以下依据 [Docker 官方 Ubuntu 安装说明](https://docs.docker.com/engine/install/ubuntu/)。
+### 兼容方式：不按发行版版本号一刀切
+
+面板在 Node 24 容器中运行，不要求宿主机预装 Node。安装入口不按 Debian/CentOS 版本号拒绝已有可用 Docker 的机器，但必须满足：Linux x86_64/ARM64、可运行本项目镜像的 Docker daemon、Compose 和 Buildx 插件、足够内存/磁盘、可用 HTTPS。
+
+**这不等于任何历史版本都可以安装。** 发行版的软件源、内核、容器运行时和 CPU 指令集仍可能不兼容。当前 Docker 官方文档列出的 Debian 安装版本为 12/13，CentOS 为 Stream 9/10；该列表是 Docker 的安装支持范围，不是面板新增的版本白名单。参考 [Debian 官方安装说明](https://docs.docker.com/engine/install/debian/) 与 [CentOS 官方安装说明](https://docs.docker.com/engine/install/centos/)。
+
+| 主机情况 | 处理方式 |
+| --- | --- |
+| Debian 12 / 13 | 按下面 Debian 步骤安装，或执行自动选择脚本。 |
+| CentOS Stream 9 / 10 | 按下面 CentOS 步骤安装，保留 SELinux，开放所需入口。 |
+| Ubuntu | 按下面 Ubuntu 步骤安装。 |
+| Debian 11 或更早、CentOS Linux 7/8、Stream 8 等旧系统 | 已有可用 Docker 时可以做能力检查和构建验收；不保证最新官方仓库仍提供兼容包。失败时迁移面板至受支持的新系统，不自动改 vault 源、降级运行时或升级系统。 |
+| 旧服务器只需被监控 | 面板可放在另一台机器；探针单独检查 Python 3.9+、systemd 247+ 和 /proc，不根据发行版名称拒绝。 |
+| 无 systemd、过旧 systemd / 内核或非 Linux | 当前探针不支持；迁移/升级系统后再接入，不能通过删除检查解决。 |
+
+### 自动选择入口（可选）
+
+如果已安装 git，下载源码后可运行：
+
+```bash
+git clone https://github.com/lxfcx/VPSBOT.git
+cd VPSBOT
+sudo bash deploy/vps/install-docker.sh
+```
+
+脚本识别 Debian / Ubuntu / CentOS 软件包体系；已有 Docker 时只检查并保留，不卸载重装。它会配置对应官方 Docker 仓库并安装所需组件，不会替你重装系统、关闭 SELinux 或改防火墙。旧版本仓库缺少包时会停止并显示包管理器错误，不会伪装成安装成功。已在该仓库目录的用户不要再次 clone，直接执行脚本。
+
+下面提供可以逐条操作的手动步骤，选择一个分支即可。
+
+### Debian
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl git openssl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+sudo tee /etc/apt/sources.list.d/docker.sources >/dev/null <<EOF_DEBIAN
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF_DEBIAN
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker compose version
+```
+
+软件源代号由系统读取，不能把旧系统代号改成新系统代号强装包。若缺少 VERSION_CODENAME 或出现无 Release 文件错误，请按官方支持范围迁移系统。
+
+### CentOS
+
+```bash
+sudo dnf -y install dnf-plugins-core ca-certificates curl git openssl
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker compose version
+```
+
+若机器没有 dnf，不要把命令机械替换成 yum 并宣称兼容；先检查旧系统的受支持运行时或迁移方案。已有旧 Docker/Podman 冲突时，先确认其承载业务，再按官方说明处理，脚本不会自动卸载。
+
+如启用了 firewalld，在确认 SSH 通道保留后开放面板入口：
+
+```bash
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --permanent --add-service=https
+sudo firewall-cmd --reload
+```
+
+同时检查云安全组。**无需关闭 SELinux**：Compose 已给专用 Caddyfile 挂载添加 `:ro,Z` 标签；数据库使用命名卷。不要把其他服务共用的敏感目录换成该挂载路径。
+
+### Ubuntu
+
+
+已有 Docker 且 Compose / Buildx 正常，可跳过。本段仅适用于 Ubuntu，Debian / CentOS 使用上面的对应步骤。以下依据 [Docker 官方 Ubuntu 安装说明](https://docs.docker.com/engine/install/ubuntu/)。
 
 ```bash
 sudo apt update
@@ -45,6 +123,8 @@ sudo docker compose version
 
 ## 3. 下载源码，配置域名与初始化密钥
 
+如果已经通过自动入口下载源码，跳过下面的 `git clone`，进入已有仓库的 `deploy/vps` 目录即可。
+
 ```bash
 git clone https://github.com/lxfcx/VPSBOT.git
 cd VPSBOT/deploy/vps
@@ -57,9 +137,10 @@ nano .env
 
 ## 4. 构建并启动
 
-在 `VPSBOT/deploy/vps` 目录执行：
+在 `VPSBOT/deploy/vps` 目录执行（已创建 `.env` 后先检查）：
 
 ```bash
+sudo bash check-host.sh
 sudo docker compose up -d --build
 sudo docker compose ps
 sudo docker compose logs --tail=100 panel caddy
@@ -94,12 +175,36 @@ curl -fsS https://monitor.example.com/api/monitor/auth/status
 5. 命令有效 15 分钟且仅可兑换一次。安装完成自动启动 prism-agent 并开机自启，默认每 10 秒上报。
 6. 收到心跳后查看 CPU、内存、硬盘、网络与运行时长。采样条随真实数据更新；历史不足时空格表示未采样。
 
-探针支持 Linux + systemd 247+ + Python 3.9+。需要 curl；Ubuntu/Debian 缺少时：
+探针不按发行版版本号限制，但需要实际可用的 Linux /proc、systemd 247+、Python 3.9+ 与 HTTPS 证书。新版安装器会先检查，再兑换一次性凭证，避免旧系统安装失败却消耗凭证。它会寻找 python3 及并行安装的 python3.9–python3.14。
+
+需要 curl；Ubuntu/Debian 缺少依赖时：
 
 ```bash
 sudo apt update
 sudo apt install -y python3 curl ca-certificates
 ```
+
+CentOS Stream 可安装：
+
+```bash
+sudo dnf install -y python3 curl ca-certificates
+python3 --version
+systemctl --version
+```
+
+已有仓库时，可在目标宿主机先只检查、不安装：
+
+```bash
+bash agent/install.sh --check
+```
+
+若默认 python3 太旧，可并行安装受支持 Python，不要替换 `/usr/bin/python` 或发行版依赖的系统解释器；检查指定解释器：
+
+```bash
+PRISM_PYTHON=/usr/local/bin/python3.11 bash agent/install.sh --check
+```
+
+实际运行下载后的安装脚本时，同样使用 `sudo env PRISM_PYTHON=/usr/local/bin/python3.11 bash 安装脚本路径 ...`。路径需替换成真实位置。systemd 过旧（例如缺少 LoadCredential）不能仅升级 Python 解决；请选择新宿主机或升级系统。本版不提供 root 常驻探针作为无提示降级方案。
 
 **监控面板本机：** 同样在面板添加一个节点，复制命令，在面板 VPS 的宿主机执行，不是在 Docker 容器内执行，这样统计的是宿主机资源。
 
@@ -188,3 +293,7 @@ sudo docker compose start panel
 ## 验证范围
 
 本版独立运行时已覆盖本地 HTTP 集成验证：前端/安装脚本服务、身份隔离、节点创建、真实格式心跳、密码登录、上传和重启持久化。Docker/公网证书/实际 VPS 接入需在你的主机按本教程验收；这里没有代替你在真实服务器执行部署。
+
+## 版本与验收边界
+
+以上发行版支持信息查阅于 2026-09-21。安装脚本语法、前置检查分支与应用测试可在本地验证；没有声称已在每一种 Debian/CentOS 版本的真实 VPS 上安装成功。`check-host.sh` 不拉取镜像、不展示 .env 内容，也不修改主机；通过后仍须检查 `docker compose ps`、HTTPS、登录和真实心跳。
