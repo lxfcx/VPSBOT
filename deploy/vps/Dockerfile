@@ -9,7 +9,10 @@ FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 DATA_DIR=/data
 WORKDIR /app
 COPY --from=build /app/dist-vps ./
-RUN mkdir /data && chown node:node /data
+# Git checkout/cp can preserve 0600 files and 0700 directories from the
+# installer's umask 077. Runtime code stays root-owned but readable by node.
+RUN find /app -type d -exec chmod 0755 {} + && find /app -type f -exec chmod 0644 {} +
+RUN mkdir /data && chown node:node /data && chmod 0700 /data
 USER node
 VOLUME ["/data"]
 EXPOSE 3000
