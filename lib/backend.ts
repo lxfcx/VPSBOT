@@ -135,7 +135,7 @@ export async function api(r: Request, path: string[]) {
         m.cycleTx = (same ? previous.cycleTx || 0 : 0) + (previous && !reboot ? Math.max(0, m.tx - previous.tx) : 0);
         m.cycleRx = (same ? previous.cycleRx || 0 : 0) + (previous && !reboot ? Math.max(0, m.rx - previous.rx) : 0);
         const incomingIp=r.headers.get('cf-connecting-ip');
-        if(meta.autoGeo!==false&&(!row.seen||incomingIp&&incomingIp!==meta.ip||meta.latitude==null)) {const detected=await identify(r,row.owner);if(meta.ip&&detected.ip&&meta.ip!==detected.ip)await event(row.owner,row.id,'info',`${meta.name} · 出口 IP 变化 ${meta.ip} → ${detected.ip}`);Object.assign(meta,detected)}
+        if(meta.autoGeo!==false&&(!row.seen||incomingIp&&incomingIp!==meta.ip||((meta.latitude==null||!meta.asn)&&Date.now()/1000-(meta.geoCheckedAt||0)>3600))) {const detected=await identify(r,row.owner);if(meta.ip&&detected.ip&&meta.ip!==detected.ip)await event(row.owner,row.id,'info',`${meta.name} · 出口 IP 变化 ${meta.ip} → ${detected.ip}`);Object.assign(meta,detected)}
         if(!meta.provider&&m.provider)meta.provider=m.provider;
         const onlineDelta=row.seen&&now-row.seen<=c.offline?Math.max(0,now-row.seen):0;
         const changed = await db().prepare('UPDATE servers SET metrics=?,seen=?,meta=?,first_seen=CASE WHEN first_seen=0 THEN ? ELSE first_seen END,online_seconds=online_seconds+? WHERE id=? AND seen=? AND token=?').bind(JSON.stringify(m), now, JSON.stringify(meta),now,onlineDelta, row.id, row.seen,row.token).run();

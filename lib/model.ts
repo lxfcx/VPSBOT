@@ -118,8 +118,15 @@ export function health(s:Server,c:any=defaults,now=Date.now()/1000):Health{
  for(const p of m.checks){if(p.ms===null)issues.push(`${p.name} 连接失败`);else if(p.ms>=c.latency)issues.push(`${p.name} 延迟 ${p.ms.toFixed(0)} ms`);if(p.loss>=c.loss)issues.push(`${p.name} 连接失败率 ${p.loss}%`)}
  if(!unlimited(s.meta)&&s.meta.trafficMode!=='unknown'&&s.meta.quota>0&&trafficUsed(s)/1024**3/s.meta.quota*100>=c.traffic)issues.push('本周期流量接近或超过配额');
  const days=expiryDays(s.meta);if(days!==null&&days<=c.expiryDays)issues.push(days<0?'服务器已到期':`${days} 天后到期`);
+ const advice:string[]=[];
+ if(m.cpu>=c.cpu)advice.push('CPU 偏高：检查 top 中持续占用的进程和计划任务');
+ if(m.memory>=c.memory||m.swap>=c.swap)advice.push('内存压力：检查进程内存、Swap 与 OOM 日志');
+ if(m.disk>=c.disk||(m.disks||[]).some(d=>d.percent>=c.disk))advice.push('磁盘空间不足：检查大文件、日志轮转与 inode 使用率');
+ if(m.checks.some(p=>p.ms===null||p.loss>=c.loss||p.ms>=c.latency))advice.push('线路异常：核对探测目标、防火墙和上游网络，多目标对比定位');
+ if(issues.some(x=>x.includes('配额')))advice.push('流量接近配额：检查大流量进程和账期重置日期');
+ if(days!==null&&days<=c.expiryDays)advice.push('到期提醒：核实账单及续费安排');
  const critical=['cpu','memory','disk','swap'].some(k=>(m as any)[k]>=100)||m.disks?.some(d=>d.percent>=100);
- return {level:critical?'critical':issues.length?'warning':'healthy',title:critical?'资源已满载':issues.length?'需要关注':'运行健康',text:issues.length?issues.join('；')+'。建议检查相关进程、配额或续费。':'资源使用、连接探测与心跳均未触发当前阈值。',issues,score:Math.max(0,100-issues.length*15-(critical?30:0))};
+ return {level:critical?'critical':issues.length?'warning':'healthy',title:critical?'资源已满载':issues.length?'需要关注':'运行健康',text:issues.length?issues.join('；')+'。'+advice.join('；')+'。以上为规则建议，未执行自动修复。':'资源使用、连接探测与心跳均未触发当前阈值。',issues,score:Math.max(0,100-issues.length*15-(critical?30:0))};
 }
 export const defaultTitles={overview:'总览',servers:'服务器',alerts:'告警中心',billing:'账单与到期',ai:'AI 洞察',audit:'操作记录'};
 export type Profile={platformName:string;documentTitle:string;overviewTitle:string;platformSubtitle:string;pageTitles:typeof defaultTitles;displayName:string;bio:string;theme:'dark'|'light'|'system';avatar:boolean;background:boolean;backgroundOpacity:number;authMode:string;username?:string;passwordConfigured?:boolean};
