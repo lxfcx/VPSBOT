@@ -1,6 +1,7 @@
 export type Carrier='telecom'|'unicom'|'mobile';
 export type NetworkTarget={carrier:Carrier;name:string;host:string;port:number};
 export type Metrics = {
+    trafficBasis?:string;
     cpu: number;
     memory: number;
     disk: number;
@@ -63,6 +64,7 @@ export type Meta = {
     billingType?: 'paid' | 'free' | 'one-time';
     expiryMode?: 'date' | 'never' | 'unknown';
     trafficMode?: 'limited' | 'unlimited' | 'unknown';
+    trafficCalibration?:{cycle:string;usedGb:number;baseline:number;at:number};
     trafficOffsetGb?: number;
     trafficOffsetCycle?: string;
     planNote?: string;
@@ -103,7 +105,17 @@ export const online = (s: Server, timeout = 60, now=Date.now()/1000) => s.seen >
 export function duration(seconds:number){const s=Math.max(0,Math.floor(seconds||0)),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return `${d?d+'天 ':''}${h}小时 ${m}分 ${s%60}秒`}
 export function expiryDays(meta:Meta){return meta.expiryMode==='never'||meta.expiryMode==='unknown'||!meta.expires?null:Math.ceil((Date.parse(meta.expires)-Date.now())/864e5)}
 export function cycleKey(resetDay:number,now=new Date()){return new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()-(now.getUTCDate()<resetDay?1:0),resetDay)).toISOString().slice(0,10)}
-export function trafficUsed(s:Server){const m=s.metrics;const raw=m?.cycleTx!==undefined?(m.cycleTx||0)+(m.cycleRx||0):s.id.startsWith('demo')?(m?.tx||0)+(m?.rx||0):0;const offset=(!s.meta.trafficOffsetCycle||s.meta.trafficOffsetCycle===cycleKey(s.meta.resetDay))?(s.meta.trafficOffsetGb||0):0;return raw+offset*1024**3}
+export function accumulateTraffic(m:any,previous:any,cycle:string,now:number){
+ const start=Date.parse(cycle)/1000,bootInCycle=now-m.uptime>=start,same=previous?.cycle===cycle,reboot=!!previous&&(previous.bootId&&m.bootId?previous.bootId!==m.bootId:m.uptime<previous.uptime),seed=!previous||!previous.trafficBasis;
+ let tx=same?previous.cycleTx||0:0,rx=same?previous.cycleRx||0:0,basis=same?previous.trafficBasis:'完整采样';
+ if(seed){if(bootInCycle&&!reboot){tx=m.tx;rx=m.rx;basis='本次开机累计（本账期内，可能缺少更早开机记录）'}else{tx+=previous&&!reboot?Math.max(0,m.tx-previous.tx):0;rx+=previous&&!reboot?Math.max(0,m.rx-previous.rx):0;basis='部分采样（历史账单用量待校准）'}}
+ else if(same){tx+=reboot?bootInCycle?m.tx:0:Math.max(0,m.tx-previous.tx);rx+=reboot?bootInCycle?m.rx:0:Math.max(0,m.rx-previous.rx)}
+ else{tx=bootInCycle?m.tx:0;rx=bootInCycle?m.rx:0;basis='新账期采样（跨账期心跳间隔不计入）'}
+ return {cycle,cycleTx:tx,cycleRx:rx,trafficBasis:basis};
+}
+export function trafficUsed(s:Server){const m=s.metrics,cycle=cycleKey(s.meta.resetDay);const raw=m?.cycle===cycle?(m.cycleTx||0)+(m.cycleRx||0):s.id.startsWith('demo')?(m?.tx||0)+(m?.rx||0):0;const cal=s.meta.trafficCalibration;if(cal?.cycle===cycle)return cal.usedGb*1024**3+Math.max(0,raw-cal.baseline);const offset=(!s.meta.trafficOffsetCycle||s.meta.trafficOffsetCycle===cycle)?(s.meta.trafficOffsetGb||0):0;return raw+offset*1024**3}
+export function networkLabel(meta:Meta){if(meta.autoGeo===false)return meta.operator+' · '+meta.network;const op=meta.operator.replace(' 美国电话电报','').replace(' 日本电信','');return op+' · '+(meta.network.includes('接入运营商')?'家宽待核验':meta.network.split('（')[0])}
+
 export const unlimited=(m:Meta)=>m.trafficMode==='unlimited';
 export const expiryLabel=(m:Meta)=>m.expiryMode==='never'?'永久有效':m.expiryMode==='unknown'?'到期未确认':m.expires||'未设置到期';
 export const planLabel=(m:Meta)=>m.billingType==='free'?(m.expiryMode==='never'?'永久免费':'免费套餐'):m.billingType==='one-time'?'一次性付费':`${currencies[m.currency]}${m.price}/${m.cycle===1?'月':m.cycle===3?'季':m.cycle===6?'半年':'年'}`;
