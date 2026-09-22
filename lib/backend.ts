@@ -161,6 +161,21 @@ export async function api(r: Request, path: string[]) {
     const accountResponse=await authPrivate(r,route,db(),o,bindings().AUTH_MODE==='token'||bindings().ADMIN_TOKEN?'token':'sites');if(accountResponse)return accountResponse;
     if(bindings().AUTH_MODE==='token'&&!(bindings().ADMIN_TOKEN&&await hash(bearer(r))===await hash(bindings().ADMIN_TOKEN!))){const account:any=await db().prepare('SELECT changed FROM accounts WHERE owner=?').bind(o).first();if(account?.changed===0)return Response.json({error:'请先修改默认密码',code:'PASSWORD_CHANGE_REQUIRED'},{status:403})}
     const personal=await profileApi(r,path,db(),bindings().FILES,o,bindings().AUTH_MODE==='token'||bindings().ADMIN_TOKEN?'token':'sites');if(personal)return personal;
+    if(route==='records'&&['GET','DELETE'].includes(r.method)){
+        const u=new URL(r.url),kind=z.enum(['events','billing','audit','samples','analyses','all']).parse(u.searchParams.get('kind')||'events'),server=u.searchParams.get('server');
+        const scope=(k:string)=>{let table=k==='billing'?'audit':k,where=k==='samples'?'server IN (SELECT id FROM servers WHERE owner=?)':'owner=?';const values:any[]=[o];if(k==='billing')where+=" AND category='billing'";if(k==='audit')where+=" AND category<>'billing'";if(server){where+=' AND server=?';values.push(server)}return {table,where,values,key:k==='analyses'?'server':'id'}};
+        if(r.method==='GET'){
+            if(kind==='all')return Response.json({error:'请选择一种记录查看'},{status:400});
+            const q=scope(kind),offset=z.coerce.number().int().min(0).max(1000000).parse(u.searchParams.get('offset')||0);
+            const fields=kind==='samples'?"id,server,time,value AS detail,'监控采样' AS title":kind==='analyses'?"server AS id,server,time,text AS detail,'诊断结果缓存' AS title":kind==='events'?"id,server,time,message AS detail,kind AS title":"id,server,time,detail,action AS title";
+            const rows=await db().prepare(`SELECT ${fields} FROM ${q.table} WHERE ${q.where} ORDER BY time DESC,${q.key} DESC LIMIT 100 OFFSET ?`).bind(...q.values,offset).all();return Response.json(rows.results);
+        }
+        const data=z.object({id:z.string().min(1).max(200).optional(),all:z.literal(true).optional(),before:z.number().int().nonnegative().optional()}).refine(x=>!!x.id!==!!x.all,'请选择单条或全部删除').parse(await r.json());
+        if(kind==='all'&&!data.all)return Response.json({error:'全部类别仅支持清空操作'},{status:400});
+        const cutoff=Math.min(now,data.before??now),kinds=kind==='all'?['events','billing','audit','samples','analyses']:[kind];
+        await db().batch(kinds.map(k=>{const q=scope(k);return db().prepare(`DELETE FROM ${q.table} WHERE ${q.where} AND ${data.id?q.key+'=?':'time<=?'}`).bind(...q.values,data.id||cutoff)}));
+        return Response.json({ok:true});
+    }
     if(route==='audit'&&r.method==='GET'){const u=new URL(r.url),offset=Math.max(0,Math.min(100000,Number(u.searchParams.get('offset'))||0)),category=u.searchParams.get('category');const q=category?db().prepare('SELECT * FROM audit WHERE owner=? AND category=? ORDER BY time DESC,id DESC LIMIT 100 OFFSET ?').bind(o,category,offset):db().prepare('SELECT * FROM audit WHERE owner=? ORDER BY time DESC,id DESC LIMIT 100 OFFSET ?').bind(o,offset);return Response.json((await q.all()).results)}
     if(route==='trends'&&r.method==='GET'){
         const rows:any=await db().prepare('SELECT server,time,value FROM samples WHERE server IN (SELECT id FROM servers WHERE owner=?) AND time>? ORDER BY time DESC LIMIT 5000').bind(o,now-1200).all();
