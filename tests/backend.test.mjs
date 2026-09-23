@@ -5,7 +5,7 @@ import {readFileSync,writeFileSync,rmSync,mkdirSync} from 'node:fs';
 import ts from 'typescript';
 // Compile the actual production handlers; replace only the Cloudflare environment binding.
 mkdirSync('tests/.compiled',{recursive:true});
-for(const f of ['model','accounts','profile','geo','telemetry','network','backend']){let source=readFileSync(`lib/${f}.ts`,'utf8').replace("import { env } from 'cloudflare:workers';","const env = globalThis.TEST_ENV;").replace(/from ['"]\.\/(model|accounts|profile|geo|telemetry)['"]/g,"from './$1.mjs'");writeFileSync(`tests/.compiled/${f}.mjs`,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)}
+for(const f of ['model','accounts','profile','geo','telemetry','network','exchange','public-view','traffic-summary','backend']){let source=readFileSync(`lib/${f}.ts`,'utf8').replace("import { env } from 'cloudflare:workers';","const env = globalThis.TEST_ENV;").replace(/from ['"]\.\/(model|accounts|profile|geo|telemetry|exchange|public-view|traffic-summary)['"]/g,"from './$1.mjs'");writeFileSync(`tests/.compiled/${f}.mjs`,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)}
 const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0000_tidy_imperial_guard.sql','utf8'));sqlite.exec(readFileSync('drizzle/0001_shallow_thundra.sql','utf8'));sqlite.exec(readFileSync('drizzle/0002_watery_polaris.sql','utf8'));
 function statement(sql,params=[]){return {bind(...args){return statement(sql,args)},async first(){return sqlite.prepare(sql).get(...params)||null},async all(){return {results:sqlite.prepare(sql).all(...params)}},async run(){const r=sqlite.prepare(sql).run(...params);return {meta:{changes:r.changes}}}}}
 globalThis.TEST_ENV={DB:{prepare:statement,async batch(items){sqlite.exec('BEGIN');try{const out=[];for(const item of items)out.push(await item.run());sqlite.exec('COMMIT');return out}catch(e){sqlite.exec('ROLLBACK');throw e}}},AUTH_MODE:'token',ADMIN_TOKEN:'test-admin-not-a-real-secret',CRON_TOKEN:'test-cron-not-a-real-secret'};
@@ -183,4 +183,30 @@ await test('cycle traffic seeds existing counters honestly and calibration persi
  const created=await(await call('servers','POST',{name:'calibration',autoGeo:false})).json();await call('report','POST',metric,{Authorization:'Bearer '+created.token});await call('servers/'+created.id+'/traffic','PUT',{usedGb:42});await call('servers/'+created.id,'PATCH',{note:'preserve calibration'});let node=(await(await call('servers')).json()).find(s=>s.id===created.id);const {trafficUsed}=await import('./.compiled/model.mjs');assert.equal(trafficUsed(node),42*1024**3);older(created.id);await call('report','POST',{...metric,tx:metric.tx+1024},{Authorization:'Bearer '+created.token});node=(await(await call('servers')).json()).find(s=>s.id===created.id);assert.equal(trafficUsed(node),42*1024**3+1024);
 });
 await test('legacy queued probe warnings are suppressed without sending Telegram',async()=>{const {deliver}=await import('./.compiled/backend.mjs');sqlite.prepare('INSERT INTO settings(owner,value) VALUES (?,?)').run('quiet-probes',JSON.stringify({telegramEnabled:true,telegramToken:'fake-token',telegramChat:'fake-chat'}));sqlite.prepare('INSERT INTO events(id,owner,server,time,kind,message) VALUES (?,?,?,?,?,?)').run('legacy-probe','quiet-probes','probe',1,'warning','node · Google延迟告警：999 ms');const original=globalThis.fetch;let calls=0;try{globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({ok:true}))};await deliver('quiet-probes');assert.equal(calls,0);assert.equal(sqlite.prepare('SELECT delivered FROM events WHERE id=?').get('legacy-probe').delivered,2)}finally{globalThis.fetch=original}});
+
+
+await test('anonymous viewer allowlist keeps private fields and mutation endpoints protected',async()=>{
+ const created=await(await call('servers','POST',{name:'Public node',note:'private-note',planNote:'private-plan'})).json();
+ sqlite.prepare('UPDATE servers SET metrics=?,seen=? WHERE id=?').run(JSON.stringify({...metric,bootId:'private-boot',checks:[{name:'private-target',target:'10.0.0.4:22',ms:30,loss:0}]}),Math.floor(Date.now()/1000),created.id);
+ const response=await call('public/dashboard','GET',undefined,{});assert.equal(response.status,200);const result=await response.json();const raw=JSON.stringify(result);
+ for(const secret of ['private-note','private-plan','private-boot','private-target','10.0.0.4','telegramToken','aiKey'])assert.equal(raw.includes(secret),false,secret);
+ const s=result.servers.find(s=>s.id===created.id);assert.equal(s.metrics.cpu,metric.cpu);assert.equal(s.meta.ip,undefined);
+ await assert.rejects(()=>call('servers/'+created.id,'PATCH',{name:'hacked'},{}),/UNAUTHORIZED/);
+ await assert.rejects(()=>call('public/dashboard','POST',{},{}),/UNAUTHORIZED/);
+ const old=TEST_ENV.AUTH_MODE;TEST_ENV.AUTH_MODE='sites';await assert.rejects(()=>call('public/dashboard','GET',undefined,{}),/UNAUTHORIZED/);TEST_ENV.AUTH_MODE=old;
+});
+await test('exchange conversion uses both quotes and preserves unavailable currencies',async()=>{
+ const {convert,exchangeRates}=await import('./.compiled/exchange.mjs');
+ assert.equal(convert(10,'EUR','CNY',{EUR:.8,CNY:7}),87.5);assert.equal(convert(2,'USDT','USD',{USD:1}),null);assert.equal(convert(3,'USD','USD',{}),3);
+ globalThis.fetch=async()=>new Response(JSON.stringify({data:{currency:'USD',rates:{CNY:'7',EUR:'.8',GBP:'.7',USDT:'1.01',USDC:'1.001'}}}));
+ const rates=await exchangeRates();assert.equal(rates.stale,false);assert.equal(rates.rates.USDT,1.01);assert.ok(rates.fetchedAt>0);
+});
+
+await test('public daily traffic is read-only and returns measured aggregates without raw samples',async()=>{
+ const node=await(await call('servers','POST',{name:'Daily statistics test'})).json();const base=Math.floor(Date.now()/86400000)*86400;
+ for(const [i,tx,boot] of [[0,100,'a'],[1,300,'a'],[2,50,'b'],[3,90,'b']])sqlite.prepare('INSERT INTO samples(id,server,time,value) VALUES (?,?,?,?)').run('daily-'+i,node.id,base+10+i*60,JSON.stringify({...metric,tx,rx:tx*2,bootId:boot}));
+ const result=await(await call('public/traffic','GET',undefined,{})).json();const measured=result.rows.find(r=>r.server===node.id);assert.equal(measured.tx,240);assert.equal(measured.rx,480);assert.equal(measured.samples,4);assert.equal(result.timezone,'UTC');assert.equal(result.partial,true);assert.ok(Array.isArray(result.rows));
+ assert.equal(JSON.stringify(result).includes('bootId'),false);
+ await assert.rejects(()=>call('public/traffic','DELETE',{},{}),/UNAUTHORIZED/);
+});
 sqlite.close();rmSync('tests/.compiled',{recursive:true});

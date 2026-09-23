@@ -1,3 +1,6 @@
+import {dailyTraffic} from './traffic-summary';
+import {exchangeRates} from './exchange';
+import {viewerServer} from './public-view';
 import { env } from 'cloudflare:workers';
 import { z } from 'zod';
 import { defaults, emptyMeta, countryName, health, accumulateTraffic, cycleKey, trafficUsed, unlimited, expiryLabel, planLabel, duration, bytes, flag } from './model';
@@ -99,6 +102,16 @@ export async function api(r: Request, path: string[]) {
     if (r.method !== 'GET' && r.headers.get('origin') && r.headers.get('origin') !== new URL(r.url).origin)
         return Response.json({ error: '跨站请求被拒绝' }, { status: 403 });
     const publicAuth=await authPublic(r,route,db(),bindings().AUTH_MODE==='token'||bindings().ADMIN_TOKEN?'token':'sites');if(publicAuth)return publicAuth;
+    if(route==='exchange-rates'&&r.method==='GET')return Response.json(await exchangeRates(),{headers:{'Cache-Control':'no-store'}});
+    if(path[0]==='public'&&r.method==='GET'&&bindings().AUTH_MODE==='token'){
+        if(route==='public/traffic')return Response.json(await dailyTraffic(db(),'admin'),{headers:{'Cache-Control':'no-store'}});
+        if(route==='public/dashboard'){
+            const rows:any=await db().prepare('SELECT * FROM servers WHERE owner=? ORDER BY position,id').bind('admin').all();
+            const p=await profileData(db(),'admin'),c=await config('admin');
+            const settings=Object.fromEntries(['cpu','memory','disk','swap','traffic','latency','loss','offline','expiryDays','hubId'].map(k=>[k,(c as any)[k]]));
+            return Response.json({servers:rows.results.map(viewerServer),settings,profile:{platformName:p.platformName,documentTitle:p.documentTitle,platformSubtitle:p.platformSubtitle}}, {headers:{'Cache-Control':'no-store'}});
+        }
+    }
     if(route==='enroll'&&r.method==='POST'){
         if(bindings().AUTH_MODE!=='token')return Response.json({error:'此部署不开放探针兑换，请使用自托管后端。'},{status:400});
         const data=z.object({ticket:z.string().regex(/^[a-f0-9]{64}$/)}).parse(await r.json());
@@ -174,6 +187,7 @@ export async function api(r: Request, path: string[]) {
         return Response.json({ok:true});
     }
     if(route==='audit'&&r.method==='GET'){const u=new URL(r.url),offset=Math.max(0,Math.min(100000,Number(u.searchParams.get('offset'))||0)),category=u.searchParams.get('category');const q=category?db().prepare('SELECT * FROM audit WHERE owner=? AND category=? ORDER BY time DESC,id DESC LIMIT 100 OFFSET ?').bind(o,category,offset):db().prepare('SELECT * FROM audit WHERE owner=? ORDER BY time DESC,id DESC LIMIT 100 OFFSET ?').bind(o,offset);return Response.json((await q.all()).results)}
+    if(route==='traffic-summary'&&r.method==='GET')return Response.json(await dailyTraffic(db(),o),{headers:{'Cache-Control':'no-store'}});
     if(route==='trends'&&r.method==='GET'){
         const rows:any=await db().prepare('SELECT server,time,value FROM samples WHERE server IN (SELECT id FROM servers WHERE owner=?) AND time>? ORDER BY time DESC LIMIT 5000').bind(o,now-1200).all();
         const trends:Record<string,any[]>={};for(const row of rows.results){const list=trends[row.server]||=([]);if(list.length>=60)continue;const m=JSON.parse(row.value);list.push({time:row.time,cpu:m.cpu,memory:m.memory,disk:m.disk,upload:m.upload,download:m.download,checks:m.checks})}
