@@ -114,7 +114,17 @@ export function accumulateTraffic(m:any,previous:any,cycle:string,now:number){
  return {cycle,cycleTx:tx,cycleRx:rx,trafficBasis:basis};
 }
 export function trafficUsed(s:Server){const m=s.metrics,cycle=cycleKey(s.meta.resetDay);const raw=m?.cycle===cycle?(m.cycleTx||0)+(m.cycleRx||0):s.id.startsWith('demo')?(m?.tx||0)+(m?.rx||0):0;const cal=s.meta.trafficCalibration;if(cal?.cycle===cycle)return cal.usedGb*1024**3+Math.max(0,raw-cal.baseline);const offset=(!s.meta.trafficOffsetCycle||s.meta.trafficOffsetCycle===cycle)?(s.meta.trafficOffsetGb||0):0;return raw+offset*1024**3}
-export function networkLabel(meta:Meta){if(meta.autoGeo===false)return meta.operator+' · '+meta.network;const op=meta.operator.replace(' 美国电话电报','').replace(' 日本电信','');return op+' · '+(meta.network.includes('接入运营商')?'家宽待核验':meta.network.split('（')[0])}
+export function networkLabel(meta:Meta){
+ const raw=meta.operator||'',short=raw.match(/AT&T|Cogent|NTT|Hetzner|Oracle|OVH|DigitalOcean|Cloudflare|AWS|Comcast|Verizon|Singtel|Lumen|Arelion/i)?.[0]||raw.replace(/AS\d+\s*/g,'').trim();const op=/cogent/i.test(short)?'Cogent':short==='待识别'?'运营商未知':short;
+ if(meta.autoGeo===false){const network=meta.network.replace(/（.*?）/g,'');const verified=meta.broadcast&&!/待|未知|核验/.test(meta.broadcast)?' · '+meta.broadcast:'';return op+(/待|未知|核验/.test(network)?'':network)+verified}
+ if(/Cogent|NTT|Lumen|Arelion/i.test(raw)||meta.network.includes('骨干'))return op+'骨干/企业网络';
+ if(/数据中心|云网络/.test(meta.network))return op+'机房网络';
+ if(/接入运营商/.test(meta.network))return op+'接入网络';
+ return op;
+}
+export function trafficAmount(n:number){if(!Number.isFinite(n))return '—';return n>=1024**4?(n/1024**4).toFixed(2)+' TB':(Math.max(0,n)/1024**3).toFixed(2)+' GB'}
+export function nextTrafficReset(day:number,now=new Date()){const next=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),day));if(next.getTime()<=now.getTime())next.setUTCMonth(next.getUTCMonth()+1);return `${next.getUTCMonth()+1}月${next.getUTCDate()}日重置 · ${Math.ceil((next.getTime()-now.getTime())/86400000)}天后（UTC）`}
+
 
 export const unlimited=(m:Meta)=>m.trafficMode==='unlimited';
 export const expiryLabel=(m:Meta)=>m.expiryMode==='never'?'永久有效':m.expiryMode==='unknown'?'到期未确认':m.expires||'未设置到期';
