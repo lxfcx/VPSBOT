@@ -11,4 +11,4 @@ python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$update_file"
 install -m 755 "$update_file" /opt/prism-agent/prism_agent.py
 systemctl restart prism-agent
 systemctl is-active --quiet prism-agent
-echo '探针已更新并启动，资源指标目标每 3 秒上报；线路探测独立每 10 秒执行。'
+echo '探针已更新并启动，资源指标目标每 3 秒上报；线路探测独立每 3 秒调度（超时探测不重叠）。'

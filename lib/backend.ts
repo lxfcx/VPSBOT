@@ -127,7 +127,7 @@ export async function api(r: Request, path: string[]) {
         const updated=await db().prepare('UPDATE servers SET token=?,seen=0 WHERE id=? AND owner=?').bind(await hash(token),ticket.server,ticket.owner).run();
         if(!updated.meta.changes)return Response.json({error:'服务器已删除'},{status:404});
         await auditRecord(db(),ticket.owner,'security','探针安装凭证已兑换','安装凭证 '+await hash(data.ticket),ticket.server);
-        return Response.json({token,interval:10},{headers:{'Cache-Control':'no-store'}});
+        return Response.json({token,interval:3},{headers:{'Cache-Control':'no-store'}});
     }
     if (route === 'report' && r.method === 'POST') {
         const token = bearer(r);

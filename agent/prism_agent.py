@@ -174,7 +174,7 @@ def main():
                 try: cached_checks = probe_future.result()
                 except (OSError, ValueError): cached_checks = []
                 probe_future = None
-            if probe_future is None and time.monotonic() - probe_stamp >= 10:
+            if probe_future is None and time.monotonic() - probe_stamp >= 3:
                 probe_future = probe_pool.submit(collect_checks, list(targets))
                 probe_stamp = time.monotonic()
             metrics, previous = snapshot(previous, targets, cached_checks)
@@ -184,7 +184,7 @@ def main():
                 if response.status != 200:
                     raise OSError('Unexpected response')
                 reply = json.loads(response.read(8192))
-                interval = max(3, min(60, int(reply.get('interval', 3))))
+                interval = 3
                 if 'networkTargets' in reply:
                     updated = remote_targets(base_targets, reply['networkTargets'])
                     if updated is not None: targets = updated
