@@ -1,291 +1,278 @@
-# 全球VPS联动观察
+# 🌐 全球VPS联动观察
 
-中文服务器监控应用：React / TypeScript 前端、独立 Node.js + SQLite 后端（另保留 Cloudflare Workers / D1 版本），以及仅依赖 Python 标准库的 Linux 探针。
+一套中文 VPS 监控面板：淡紫色玻璃日夜主题、动态地球、真实资源采样、流量与资产概览、Telegram 事件通知。前端采用 React / TypeScript，自托管后端采用 Node.js + SQLite，Linux 探针仅依赖 Python 标准库。
 
-这是独立实现的 **v0.8.0**，不是 Komari fork，不宣称与 Komari 的全部功能或协议兼容。界面参考用户提供的卡片布局，包含日夜玻璃主题、动态节点地球、三种卡片视图与实时分段进度条。
+**🧩 作者：LXFCX** · **📮 Telegram：[@lxfcx6](https://t.me/lxfcx6)** · **📦 [GitHub 仓库](https://github.com/lxfcx/VPSBOT)**
 
-作者：[lxfcx](https://github.com/lxfcx) · 联系 TG：[@LXFCX6](https://t.me/LXFCX6)
+所有安装、更新、卸载和使用说明统一维护在本 README。
 
-## SSH 一键部署（推荐）
+## 🧭 快速导航
 
-先把域名指向服务器并放行 TCP 80/443。在 SSH 执行以下一行，按提示输入域名：
+- [🚀 安装面板](#install)
+- [🔄 更新面板](#update)
+- [🛠️ 面板管理与备份](#manage)
+- [🗑️ 一键卸载面板](#uninstall)
+- [📡 探针安装与管理](#agent)
+- [🎛️ 功能与配置](#features)
+- [🩺 常见问题](#faq)
+- [🧑‍💻 开发与验证](#development)
+- [📮 联系作者](#contact)
+
+<a id="install"></a>
+## 🚀 1. 安装面板
+
+### ✅ 安装前准备
+
+| 项目 | 说明 |
+| --- | --- |
+| 🖥️ 主机 | 一台可使用 root / sudo 的 Linux VPS |
+| 🐧 系统 | 自动安装使用 Debian / Ubuntu 的 apt-get 或 CentOS 系列的 dnf；仍须满足 Docker、Compose 与内核要求，不承诺任意历史版本均兼容 |
+| 🌍 域名 | 将面板域名的 DNS 解析指向此服务器；如设置 AAAA，IPv6 也需可达 |
+| 🔓 端口 | 默认 Caddy 部署需要 TCP 80/443 空闲且云安全组、防火墙放行 |
+| 📂 路径 | 固定安装到 `/opt/vpsbot`；已有同名目录或项目时不会覆盖 |
+
+> 已有 Nginx 或其他程序占用 80/443 时，不要停止现有业务来强行运行默认安装。已有反向代理的部署按自己的端口映射继续管理；本页提供现有 Nginx 部署的更新命令。
+
+### ⚡ SSH 一键安装
+
+在**面板服务器**执行，按提示填写域名（不带 `https://`）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lxfcx/VPSBOT/main/deploy/vps/manage.sh -o vpsbot-install.sh && sudo bash vpsbot-install.sh install && rm -f vpsbot-install.sh
 ```
 
-首次账号 **admin**，密码 **123456**，首次登录需修改默认密码；以后在个人信息中修改账号密码。
+脚本安装依赖、构建面板、创建持久化数据卷并启动 Caddy。域名和端口验证正常后，Caddy 自动申请与续期 HTTPS 证书。也可在 `install` 后追加自己的域名，跳过询问。
+
+### 🔐 首次访问
+
+打开 `https://你的域名`，首页为公开只读监控，点击右上角登录图标进入后台。
+
+| 项目 | 默认值 |
+| --- | --- |
+| 👤 账号 | `admin` |
+| 🔑 密码 | `123456` |
+
+首次登录需修改默认密码。之后可在**个人信息 → 登录与密码**修改账号和密码；已有账号不会因更新或重启恢复为默认值。
+
+<a id="update"></a>
+## 🔄 2. 更新面板
+
+### 🟣 默认一键安装的 Caddy 部署
 
 ```bash
-sudo vpsbot update               # 更新（自动备份，不重置密码）
-sudo vpsbot status               # 运行状态
-sudo vpsbot logs                 # 日志，Ctrl+C 退出
-sudo vpsbot restart              # 重启
-sudo vpsbot backup               # 备份
-sudo vpsbot uninstall --yes      # 删除本面板与全部项目数据/备份，不可恢复
+sudo vpsbot update
 ```
 
-[极简安装与命令说明](docs/QUICKSTART.zh-CN.md)
+更新前自动备份，保留账号、服务器、设置、图片和数据库。备份会短暂停止面板；源码存在本地修改时停止更新，不覆盖改动。
 
-## 手动部署与兼容说明
+### 🟢 已配置 Nginx 的现有部署
 
-**[打开完整 VPS 部署教程](docs/VPS_DEPLOYMENT.zh-CN.md)**：Docker Compose + Caddy HTTPS，一台主机运行面板、SQLite 和图片存储，其余主机装探针。无需 Cloudflare 授权。
-
-## 本次更新（v0.8.0）
-
-- SSH 一行安装，统一 `vpsbot` 更新、备份、状态、日志、重启与项目范围卸载。
-- 自托管入口为账号密码登录页，空账号库初始化 admin / 123456，首次登录须修改密码。
-- 个人信息支持账号与密码修改，更新和重启不重置已有账号。
-
-## 前次更新（v0.7.2）
-
-- 保留淡紫色日夜主题及分色进度条，满载红色警告。
-- 部署教程补齐 Debian / Ubuntu / CentOS；提供自动选择 Docker 安装入口及只读宿主检查。
-- 探针安装前检查运行能力，支持并行 Python 解释器；不按发行版版本号硬拦截，也不承诺所有历史系统都兼容。
-- CentOS 的 Caddyfile 绑定挂载支持 SELinux 标签，无需关闭 SELinux。
-
-## 前次更新（v0.7.1）
-
-- 日夜主题恢复淡紫色玻璃，恢复 CPU 蓝色、内存紫色、磁盘橙色、负载粉色及流量绿色进度条。
-- 满载/超限仍为红色，保留文字警告与此前登录同步修复。
-
-## 前次更新（v0.7）
-
-- 日夜主题、导航、图标、地球动态线路和常态进度条统一绿色；满格/达到资源告警阈值变红并提供文字提示。
-- 网络速率条达到窗口峰值时注明“达到采样峰值”，不把相对峰值当成带宽故障或触发虚假 TG 告警。
-- 修复登录后未切换实时模式/未同步设置，以及轮询使用旧离线阈值的问题。
-- [功能链路检查及验证边界](docs/FUNCTION_CHECKS.zh-CN.md)：26 项后端检查、7 项独立 HTTP 集成检查、2 项探针检查。
-
-## 前次更新（v0.6）
-
-- 日夜主题改为中性玻璃底色，增强文字对比与字重；探测名称/数值在上，历史条在下。
-- 独立 Node 24 后端复用监控、登录、TG/AI、安装凭证接口；数据库迁移、上传持久化、每分钟后台离线检查。
-- 提供 Dockerfile、Compose、HTTPS 配置和备份恢复教程。
-- 构建独立版本：`pnpm build:vps`；后端要求 `PUBLIC_URL`、`ADMIN_TOKEN` 和持久化 `DATA_DIR`，推荐直接使用教程中的 Compose。
-
-## 前次更新（v0.5）
-
-- 点击地球节点或国旗直接打开实时详情，同位置节点可选择；详情展示 CPU、内存、磁盘、负载、上传下载，并每 10 秒刷新历史。
-- 总览与详情新增三网线路面板：电信 / 联通 / 移动独立配色、5 / 10 分钟窗口、悬浮取值、曲线显隐、最新 TCP 延迟、相邻成功采样抖动、最低 / 最高 / 均值、最近 20 次 TCP 连接失败率。超时和心跳缺口不连线，更换测点不会混入旧目标采样。
-- 编辑服务器中的“三网线路测量”可配置三家运营商的授权目标域名或 IP、端口和地区备注；空配置不测量、不模拟曲线。配置随成功上报响应下发到该节点，下轮测量，无需开放额外入站端口。
-- 已安装旧版本的探针需更新到本版才支持面板下发目标。目标的运营商身份由管理员核验。本版方向为“被监控服务器 → 所配置目标”，不等于国内三网测点到服务器的反向测量，不提供 ICMP 丢包、MTR 或路由跳数。
-
-## 前次更新（v0.4）
-
-- 独立分段进度条修复绿色容器导致的满格错觉，每格支持真实比例填充；CPU、内存、磁盘、负载、周期流量、上传下载统一分段。延迟与失败率显示最近 20 条实际探测状态，没有历史时不虚构样本。
-- 动态双光尾沿线路持续流动，暂停地球旋转不暂停流动；球体遮挡背面线路，仅球体轮廓外的高空弧线可见。
-- 手机改为底部导航、全宽卡片，桌面保留侧栏；全站功能图标语义配色，日夜模式分别调整对比度。
-- 个人设置新增平台名称、浏览器标题、总览标题、副标题与六个页面名称，服务端持久化；Telegram 使用自定义平台名称。
-- 移除卡片底部安装按钮，安装入口保留在编辑弹窗中。
-
-## 前次更新（v0.3）
-
-- 地球支持 70%–300% 缩放、全屏、拖动、键盘操作、任意地点选点、经纬度与最近节点；右侧节点列表独立滚动、搜索、聚焦线路，直接打开详情、编辑、部署。地理距离不是延迟，逻辑弧线不是 traceroute。
-- 总览新增在线集群流量曲线、CPU / 内存 / 磁盘排行、续期与待接入清单。失联节点不计入实时聚合速率。
-- 每节点上传 / 下载增加进度带和真实历史曲线。进度带表示相对当前观测窗口峰值，不代表网卡带宽占用百分比；带宽总容量未配置时不猜测。无采样不生成随机曲线。真实指标默认每 10 秒更新。
-- 修复日间筛选栏强制深色覆盖；两种主题均使用透明玻璃，上传背景透过卡片显示。彩色系统图标、六种币种图标 / 强调色、粗体价格、分级到期色与蓝色在线时长。
-- 节点详情、编辑弹窗和地球节点操作可进入安装面板。自托管模式生成单次、15 分钟有效的安装命令；生成不会撤销现有探针，实际兑换时才轮换凭证。兑换后的首个有效心跳确认接入。命令不含长期 Agent Token。
-
-## 已有能力（v0.2）
-
-- 真实经纬度地球、Natural Earth 地理底图、节点国旗、动态弧线汇聚至所选主机；拖动、暂停、居中、全屏。无坐标节点明确等待定位；连线是逻辑拓扑，不是实测路由。
-- 总览聚合集群健康与地域分布；服务器页提供大卡片、紧凑卡片、可展开列表，支持手动排序。
-- 日间 / 夜间 / 跟随系统主题，头像与背景上传、替换、删除和透明度，资料与外观持久保存。图片使用私有 R2 存储，仅允许 PNG、JPEG、WebP。
-- 本地 SVG 国旗和系统图标，中文地区、系统运行时长、监测累计在线时间。
-- 免费 / 周期付费 / 一次付费，永久有效 / 指定到期 / 待确认，限量 / 无限 / 待确认流量，周期用量人工补录、续期记账、历史记录。提供商识别不等于套餐识别：Oracle 可能是付费实例，永久免费与无限流量必须依据合同确认。
-- 每卡实时规则健康说明与可选 AI 定时说明；自动 AI 每次巡检最多处理 3 个到期节点，默认每节点至少间隔 300 秒。
-- 阈值变红，资源 100% 绕过持续等待立即记录告警；从已触发告警升级为满载再通知一次。TG 以图标分段排版包含事件时指标快照、操作系统、流量、账单及健康说明。
-- 自托管账号 / 密码登录、修改密码、撤销旧会话、登录限速；密码使用带随机盐的 PBKDF2-SHA256 100,000 次，Secure / HttpOnly / SameSite Cookie。托管预览仍由 ChatGPT 账号管理登录。
-- 事件、账单与操作记录独立滚动、分页，展开历史事件查看当时健康快照。
-
-## 已实现
-
-- 总览、服务器管理、拖动 / 键盘按钮排序、搜索、网络类型筛选、维护模式、标签、备注。
-- CPU、内存、Swap、根磁盘、各挂载盘、负载、网络收发速率与总流量、TCP / UDP 数量、启动时间、系统版本、内核、架构、启动标识采样。
-- Google / Cloudflare / Apple TCP 连接探测，最近 20 次连接失败率。**不是 ICMP ping 丢包率**；TCP 延迟包括 DNS 解析时间。
-- 默认 10 秒上报 / 刷新、最近 360 个 CPU 历史点、D1 持久化、默认 7 天采样保留 / 90 天事件保留。
-- 月流量周期、UTC 重置日、配额、到期日期、月 / 季 / 半年 / 年付、USD / CNY / GBP / EUR / USDT / USDC。各币种独立统计，未假装换算实时汇率。
-- 阈值、持续超限、防抖、恢复回差、离线、到期、重启、告警 / 恢复事件与 TG 发送重试。
-- 可配置 OpenAI 中文异常分析；无密钥时明确退回规则摘要。AI 只读，不自动执行 Shell 或修复命令。
-- IPinfo 来源 IP / ASN 查询、常见运营商中文映射、中文国家名称、识别证据与人工修正。**ASN 不能证明家宽、伪家宽或广播 IP**，无证据时显示待核验，不让模型编造确定结论。
-- 安装、更新、修改配置、备注、卸载脚本；每节点独立 Token、哈希存储、Token 轮换与撤销。
-- 自托管 Cloudflare Cron 每分钟巡检，浏览器关闭或某节点离线时仍运行。
-
-## 部署状态与边界
-
-私人 Sites 预览需要 ChatGPT 登录，用于查看 UI、保存自己的服务器配置。默认显示明确标注的演示数据，不会把演示数值当成真实监控。该私人地址不能供普通无人值守探针直接上报。
-
-正式部署请使用下面的自托管 Worker。API 和探针代码已经实现，但发布到你的 Cloudflare 账户、真实服务器安装、AI/TG/IPinfo 联调需要你对应的账户配置，当前不宣称已经完成。
-
-尚不包含 Komari 的 Web SSH 终端、主题 / 插件市场、Komari 数据迁移、Windows/macOS 探针、集群高可用、付费 IP 情报的全量家宽识别、任何服务器的全自动修复。这些不是按钮占位，而是明确未实现的独立能力。
-
-当前使用 Worker + D1；不是传统 VPS 上的 Docker 后端。高频海量节点使用前应评估 D1 写入量及 Worker 成本。历史采样从安装接入时开始；首个报告将流量计数作为基线，不伪造本周期此前的用量。默认统计除 lo 以外的全部接口，虚拟网卡可能重复计数，生产中请按实际网络调整接口白名单。
-
-## 自托管到 Cloudflare
-
-需要 Node.js 24、pnpm、Cloudflare 账户与可用的 D1 / Workers / R2。依赖版本固定在 lockfile。
+**仅适用于已经存在 `/opt/vpsbot/nginx.override.yaml` 的部署，包括本项目现有的 Nginx + 127.0.0.1:18080 方案。** 该文件保留端口映射、公开地址及反向代理配置。
 
 ```bash
-corepack enable
+cd /opt/vpsbot/app && \
+git pull --ff-only && \
+docker compose -p vpsbot \
+  -f deploy/vps/compose.yaml \
+  -f /opt/vpsbot/nginx.override.yaml \
+  up -d --build --no-deps panel
+```
+
+此命令只重建面板，不启动 Caddy，不占用新的 80/443 端口。它不会自动生成备份；更新前请保存数据卷及部署配置。自定义反代部署不要使用上面的 `sudo vpsbot update`，该管理脚本目前不会自动加载 override 文件。
+
+更新后刷新网页即可。**更新面板不会自动替换其他服务器上的探针**，探针更新命令见下文。
+
+<a id="manage"></a>
+## 🛠️ 3. 面板管理与备份
+
+以下 `vpsbot` 命令适用于由一键安装器管理的默认部署：
+
+| 操作 | 命令 | 说明 |
+| --- | --- | --- |
+| 📊 查看状态 | `sudo vpsbot status` | 查看容器状态 |
+| 📜 查看日志 | `sudo vpsbot logs` | 按 Ctrl+C 退出查看，不会关闭服务 |
+| ♻️ 重启面板 | `sudo vpsbot restart` | 重启项目服务 |
+| 💾 创建备份 | `sudo vpsbot backup` | 数据与配置保存到 `/opt/vpsbot/backups` |
+| ▶️ 继续安装 | `sudo vpsbot start` | 源码和配置已准备好、但构建或启动中断时使用 |
+
+备份含数据库和部署密钥，请妥善保管，并复制到其他主机。卸载会删除面板目录内的备份。
+
+现有 Nginx 部署查看状态或日志：
+
+```bash
+docker ps --filter name=vpsbot-panel
+docker logs --tail=100 vpsbot-panel-1
+```
+
+恢复数据时需先停止面板，把备份恢复到原 `/data` 持久化卷，保留部署环境配置和文件所有权，再启动原 Compose 项目。不要在 SQLite 正在写入时直接覆盖数据库。
+
+<a id="uninstall"></a>
+## 🗑️ 4. 一键卸载面板
+
+> ⚠️ 此操作不可恢复：删除本面板数据库、上传图片、配置、项目证书和面板目录内的备份。请先将需要保留的数据复制到其他位置。
+
+在**面板服务器**执行：
+
+```bash
+sudo vpsbot uninstall --yes
+```
+
+适用于安装器管理且带管理标记的项目；不会接管手工部署。清理本项目容器、数据卷、网络、本地构建镜像、安装目录与管理命令，保留 Docker、共享基础镜像、其他应用及系统日志。不执行全局 Docker 清理。
+
+- 📡 其他服务器上的探针不会被远程卸载，需逐台执行下方探针卸载命令。
+- 🌐 自行配置的 Nginx 站点和外部证书不由该脚本删除；手工部署需按实际 Compose 文件清理。
+- 🧾 不承诺抹除系统审计、Shell 历史、云平台日志或外部备份。
+
+<a id="agent"></a>
+## 📡 5. 探针安装 / 管理命令
+
+### ➕ 安装探针
+
+1. 登录后台，添加服务器。
+2. 打开该服务器的**编辑 → 安装探针**。
+3. 点击**生成此节点的一键安装命令 → 复制完整命令**。
+4. 在**对应被监控服务器的 SSH** 中粘贴执行。
+5. 服务自动启动并设置开机自启，面板收到心跳后显示真实数据。
+
+每台服务器使用自己生成的命令，不能共用。凭证仅可兑换一次、有效 15 分钟；过期或兑换后安装失败时重新生成。面板所在主机也需要单独安装探针，才能采集宿主机指标。
+
+探针要求 **Python 3.9+、systemd 247+**。安装器检查实际能力，不只按发行版名称判断。仅支持 Linux；旧系统应先满足依赖条件。
+
+### 🔄 更新已安装的探针
+
+在**每台被监控服务器**执行一次，保留配置和凭证，仅更新程序并重启：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lxfcx/VPSBOT/main/agent/update.sh -o /tmp/vpsbot-agent-update.sh && sudo bash /tmp/vpsbot-agent-update.sh && rm -f /tmp/vpsbot-agent-update.sh
+```
+
+⏱️ 新版资源采样、上报及线路探测均以 **3 秒**为目标周期。探测独立执行且不重叠；网络超时、服务器负载或失败退避可能延长实际间隔，页面刷新频率不等于探针已收到新数据。
+
+### 🛠️ 常用管理命令
+
+| 操作 | 命令 |
+| --- | --- |
+| 📊 查看运行状态 | `sudo systemctl --no-pager --full status prism-agent` |
+| ♻️ 重启探针 | `sudo systemctl restart prism-agent` |
+| ⏸️ 暂停采集 | `sudo systemctl stop prism-agent` |
+| ▶️ 恢复采集 | `sudo systemctl start prism-agent` |
+| 🔌 开机自启并启动 | `sudo systemctl enable --now prism-agent` |
+
+📂 程序：`/opt/prism-agent`；配置：`/etc/prism-agent/config.json`。不要公开配置中的凭证。修改面板地址或重新授权，优先在后台生成该节点的新安装命令并执行；仅修改名称、价格、备注、网络类型或线路目标可直接在面板编辑，无需重新安装。
+
+### 🗑️ 一键卸载探针
+
+在**要移除监控的服务器**执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lxfcx/VPSBOT/main/agent/uninstall.sh -o /tmp/vpsbot-agent-uninstall.sh && sudo bash /tmp/vpsbot-agent-uninstall.sh && rm -f /tmp/vpsbot-agent-uninstall.sh
+```
+
+清理探针服务、程序、配置和专属缓存目录。面板端的节点和历史不会随之删除；需要时登录后台删除节点或对应记录。系统日志与外部备份不属于探针卸载范围。
+
+<a id="features"></a>
+## 🎛️ 6. 功能与配置
+
+| 分类 | 功能说明 |
+| --- | --- |
+| 🪟 界面 | 日夜玻璃主题、头像与背景、平台名称自定义、手机自适应 |
+| 🗂️ 浏览 | 完整 / 小卡 / 迷你 / 列表四种视图；搜索、国家代码筛选、分组与手动排序 |
+| 🌐 地球 | 节点定位、动态汇聚线路、缩放、旋转、点击节点查看详情；线路为逻辑拓扑，不是 traceroute |
+| 📈 指标 | CPU、内存、磁盘、负载、TCP/UDP、上传下载走势、系统与在线时长 |
+| 📦 流量 | 本周期用量、GB/TB 自动换算、配额、无限流量、UTC 重置日与人工校准 |
+| 💰 资产 | 套餐总额与币种切换，USD / CNY / GBP / EUR / USDT / USDC；免费、一次性及周期付费 |
+| 🔔 通知 | 资源阈值、离线、恢复等独立事件；Telegram 图标排版、持续超限与恢复回差 |
+| 🧠 健康 | 无 OpenAI Key 也可执行规则检测；可选 AI 增强说明，不自动执行远程修复命令 |
+| 🧾 历史 | 状态事件、操作、账单、指标历史；独立滚动及受权限控制的删除 |
+
+### 📊 数据口径
+
+- **累计流量**：上报的网卡累计计数，受重启和计数器重置影响；达到 1024 GB 自动显示 TB，不等于今日流量。
+- **本周期流量**：按账期采样累计；缺失接入前记录时不会编造历史，可用服务商用量校准。探针默认统计非 lo 接口，复杂虚拟网络可能重复计数，需按实际接口配置。
+- **今日统计**：UTC 日期内已保留的连续采样差值，不补造缺失历史。
+- **上传下载圆点条**：相对采样窗口峰值，走势取真实样本，不代表套餐带宽占用率。
+- **资产**：当前填写套餐价格的合计，不是累计付款。汇率来自公开参考接口，缺失时标注待换算；USDT/USDC 不强行按 1 美元处理。
+- **网络识别**：基于 IP / ASN 与运营商信息，可人工修正；不能仅凭 ASN 证明住宅、原生或广播属性。
+
+### 📬 Telegram 与 AI
+
+在**工作空间设置**填写自己的 Bot Token 和 Chat ID，先在 Telegram 启动机器人或将其加入目标群，再点击**发送测试通知**。CPU、内存、磁盘、流量按设置阈值判断，恢复时发送对应恢复事件；线路高延迟不应当作服务器离线。
+
+OpenAI API Key 为可选项，不配置也能采集、展示、规则告警和推送。启用外部集成后，对应指标、事件或 IP 查询会发送给所配置服务。巡检与通知重试存在调度和网络耗时，不承诺瞬时或绝不重复送达。
+
+三网目标填写自己有权检测且运营商归属明确的域名/IP与 TCP 端口；不清楚时可留空。测量方向是服务器到目标，不是国内三网到节点的反向测量；失败率为 TCP 连接尝试失败率，不是 ICMP 丢包率。
+
+### 👀 前台与后台
+
+前台无需登录，展示只读监控；后台顶部日夜按钮旁可切换前台。公开信息包括节点名称、地区、运营商、系统、指标、价格、到期与近似坐标；不公开 IP、探针凭证、集成密钥、私人备注、探测目标地址及操作记录。修改配置必须登录。
+
+<a id="faq"></a>
+## 🩺 7. 常见问题
+
+**❓ 80/443 被占用，域名打不开？**
+
+```bash
+sudo ss -ltnp '( sport = :80 or sport = :443 )'
+docker ps --format 'table {{.Names}}\t{{.Ports}}'
+```
+
+若已有 Nginx，使用现有反向代理和独立本地面板端口；不要让 Caddy 与 Nginx 抢同一端口。还需检查 DNS、云安全组、证书和反代目标。
+
+**❓ 面板正常但节点一直没更新？**
+
+在该节点检查 `systemctl status prism-agent`，确认其可访问面板 HTTPS 地址，并更新旧探针。仅更新面板不会升级远端程序。
+
+**❓ `curl` 不存在？**
+
+Debian / Ubuntu：
+
+```bash
+sudo apt-get update && sudo apt-get install -y curl
+```
+
+使用 dnf 的 CentOS 系列：
+
+```bash
+sudo dnf install -y curl
+```
+
+**❓ 首次安装中断？**
+
+保留错误输出，先解决下载、端口或环境问题。已生成源码、配置及管理命令时可用 `sudo vpsbot start` 继续；不要删除数据目录后反复重装。
+
+<a id="development"></a>
+## 🧑‍💻 8. 开发与验证
+
+推荐 Node.js 24，使用仓库锁定的 pnpm 依赖。VPS 构建产物由 `vps/build.mjs` 生成，生产后端需要持久化 `/data` 和正确的公开 HTTPS 地址。
+
+```bash
 pnpm install --frozen-lockfile
-node scripts/package-agent.mjs
-pnpm build
-pnpm exec wrangler login
-pnpm exec wrangler d1 create prism-monitor
-pnpm exec wrangler r2 bucket create prism-files
-```
-
-复制创建命令返回的数据库 UUID：
-
-```bash
-node scripts/prepare-selfhost.mjs YOUR_D1_DATABASE_UUID
-pnpm exec wrangler d1 migrations apply prism-monitor --remote --config deploy/wrangler.json
-pnpm exec wrangler secret put ADMIN_TOKEN --config deploy/wrangler.json
-pnpm exec wrangler secret put CRON_TOKEN --config deploy/wrangler.json
-pnpm exec wrangler deploy --config deploy/wrangler.json
-```
-
-两项 Token 应分别生成独立的至少 32 随机字节字符串（例如 `openssl rand -hex 32`），不要写入 Git。`AUTH_MODE=token` 已在自托管配置中设置。入口会丢弃所有平台身份 Header；即使访客伪造 Header 也不能获得后台权限。管理 API 接受管理员 Bearer Token 或已登录账号的 Cookie 会话；上报 API 仅接受对应的探针 Token。
-
-打开部署后的 HTTPS 地址，点击右上角头像，在“个人资料与登录 → 恢复管理访问”中验证 `ADMIN_TOKEN`，设置用户名与至少 12 字符的密码，然后使用密码登录。修改密码会注销全部旧会话。管理员 Token 只放在当前浏览器标签页的 sessionStorage；关闭标签页清除，不作为服务器业务数据持久化。密码登录会话默认 7 天，退出可立即撤销。请妥善保管部署用 Token，它仍具有管理员访问权限。
-
-切换“实时监控”，添加节点并复制一次性探针 Token。配置 AI / Telegram 可在设置页面完成，服务端保存后不会将密钥返回前端。数据库中的集成密钥仍属于机密，应限制 D1 访问并使用账户安全措施；当前未实施应用层 KMS 加密。
-
-每次修改源码后重新 `pnpm build` 和 `node scripts/prepare-selfhost.mjs YOUR_D1_DATABASE_UUID`，再部署。数据库结构变更先生成增量迁移；不要修改已应用的迁移。
-
-### Cron
-
-自托管入口 `deploy/worker.mjs` 包含 `scheduled`，配置 `* * * * *` 每分钟执行相同的巡检 / 通知重试逻辑。离线通知时延受“离线阈值 + 最长约 1 分钟调度间隔 + 网络延迟”影响，不承诺瞬时通知。
-
-如运行环境不支持 Cloudflare Cron，可以从**独立**管理主机每分钟运行 `agent/watchdog.py`，通过环境变量 `PRISM_ENDPOINT`、`PRISM_CRON_TOKEN` 提供连接信息。不要把唯一巡检器放在被监控的单台服务器上。
-
-## 安装探针
-
-**面板一键安装：**在自己的公网后端切换到实时模式，进入对应服务器 → 安装探针 → 生成命令 → 复制到目标服务器执行。安装器自动启用 systemd 服务、立即启动并设置开机自启；面板每 3 秒确认本次安装是否收到心跳。安装凭证只能兑换一次、15 分钟失效；重新生成使同节点上一份未使用命令失效。不要转发安装命令。安装失败且已兑换时重新生成，不复用旧命令。
-
-托管 Sites 私人预览不会生成无法供无人值守服务器使用的安装凭证；必须在自托管后端操作。配置预览中的节点不会自动复制到自托管数据库。
-
-
-Linux、Python 3.9+、systemd 247+。推荐 Debian 12 / Ubuntu 22.04 或更新系统。尚未在多发行版矩阵中实机验证。
-
-在仓库根目录运行，安装时输入节点 Token（隐藏输入，不写入 Shell 命令历史）：
-
-```bash
-sudo bash agent/install.sh https://YOUR_MONITOR_DOMAIN
-```
-
-也可以从你的正式部署下载单文件安装器，检查后执行：
-
-```bash
-curl -fsSL https://YOUR_MONITOR_DOMAIN/agent/install.sh -o prism-install.sh
-sudo bash prism-install.sh https://YOUR_MONITOR_DOMAIN
-rm -f prism-install.sh
-```
-
-自包含安装器由 `scripts/package-agent.mjs` 从当前源码生成，无第三方 Python 包。安装在 `/opt/prism-agent`，配置 `/etc/prism-agent/config.json` 权限 0600；systemd 使用 DynamicUser 与只读保护，通过 LoadCredential 提供配置。默认不写探针日志或本地缓存，不执行远程命令。
-
-修改端点或 Token / 更新程序：
-
-```bash
-sudo bash agent/configure.sh https://YOUR_MONITOR_DOMAIN
-```
-
-手动修改探测目标：编辑 `/etc/prism-agent/config.json` 的 `targets` 数组，格式为 `{"name":"自定义","host":"example.com","port":443}`，然后 `sudo systemctl restart prism-agent`。最多 10 个目标，失败率为滚动 20 次连接尝试的失败占比。端点必须 HTTPS，不跟随上报重定向，防止 Token 被转发到其他主机。
-
-修改控制端中文备注：
-
-```bash
-python3 agent/annotate.py https://YOUR_MONITOR_DOMAIN SERVER_ID '住宅属性已人工核验；续费渠道…'
-```
-
-卸载：
-
-```bash
-sudo bash agent/uninstall.sh
-```
-
-只清理本探针的程序、服务、配置和专属缓存 / 数据目录；不会删除系统 journald、审计日志、备份或第三方日志。卸载不会自动删除控制端历史；在后台删除服务器将撤销 Token 并删除该节点的当前记录、样本、告警、AI 分析与事件；独立操作 / 账单审计仍保留。不能承诺“任何系统零记录”。若下载过安装器，另行删除自己保存的源码 / 安装文件。
-
-## 告警与 AI 配置
-
-1. 保存 CPU / 内存 / 磁盘 / Swap / 流量 / 失败率阈值、延迟、持续超限时间、恢复回差。
-2. 使用自己的 Telegram Bot Token 和明确的 Chat ID。先在 Telegram 中启动机器人或加入目标群，保存后点击“发送测试通知”。
-3. 按需启用 OpenAI 并填写自己的 API Key / 可用模型名称。模型请求失败不会阻止基本告警，TG 消息将注明 AI 暂不可用。
-4. Cloudflare 请求元信息自动识别来源 IP 国家、ASN 和近似坐标；可选填写 IPinfo Token 增强查询。在节点首次上报、IP 变动或坐标缺失时查询。不同 IPinfo 套餐返回字段不同；没有公司类型数据时仍显示“待核验”。
-5. 维护模式停止该节点新状态告警；之前排队的事件仍可能发送。Telegram 使用可重试队列，网络不确定时可能重复投递，不承诺严格 exactly-once。
-
-开启集成意味着：服务器名称和指标发送给 OpenAI；源 IP 发给 IPinfo；告警及可选分析发往配置的 Telegram 会话。任何密钥都不要粘贴到聊天或仓库。
-
-## 源码结构
-
-| 路径 | 内容 |
-|---|---|
-| `app/page.tsx` / `app/globals.css` | 中文监控界面与玻璃主题 |
-| `app/api/monitor/[...path]/route.ts` | HTTP API 错误边界 |
-| `lib/backend.ts` | 采样、告警、账单、AI 与 TG |
-| `lib/accounts.ts` / `lib/profile.ts` / `lib/geo.ts` | 密码会话、私有图片、网络识别 |
-| `components/prism` | 地球、图标、卡片和个人设置 |
-| `public/maps` / `public/flags` / `public/os` | 本地地图和图标及许可 |
-| `lib/model.ts` / `lib/demo.ts` | 数据模型 / 明确标记的示例数据 |
-| `db/schema.ts` / `drizzle` | D1 表结构及版本迁移 |
-| `agent` | Linux 只读探针、安装与维护脚本 |
-| `deploy` | 自托管 Worker 入口与部署模板 |
-| `tests/backend.test.mjs` | 实际后端逻辑的 SQLite 集成测试 |
-| `.github/workflows/ci.yml` | GitHub CI |
-
-## API
-
-基础路径 `/api/monitor`。管理端要求认证；报告端仅接受单节点 Token。
-
-| 方法 / 路径 | 用途 |
-|---|---|
-| GET / POST `servers` | 列出 / 创建节点 |
-| PATCH / DELETE `servers/:id` | 修改 / 删除节点及关联数据 |
-| POST `servers/:id/token` | 轮换探针 Token |
-| GET `servers/:id/history` | 最近 360 条历史样本 |
-| POST `order` | 保存节点 ID 顺序数组 |
-| GET / PUT `settings` | 设置；密钥不返回 |
-| GET `events?offset=0` | 每页 100 条状态事件及指标快照 |
-| GET `audit?category=billing&offset=0` | 操作 / 账单分页记录 |
-| POST `servers/:id/renew` | 记录续期，不执行付款 |
-| POST `servers/:id/analyze` | 单节点 AI / 规则说明 |
-| GET / PUT `profile` | 个人资料和主题 |
-| GET / POST / DELETE `assets/avatar` 或 `assets/background` | 私有图片读取 / 上传 / 删除 |
-| GET `auth/status` | 认证模式 |
-| POST `auth/setup` / `auth/login` / `auth/password` / `auth/logout` | 自托管密码设置、登录、修改、注销 |
-| GET `trends` | 近 20 分钟内每节点最多 60 个真实趋势点，总查询最多 5000 个样本 |
-| POST `servers/:id/enrollment` | 生成一次性安装凭证（需管理员认证、自托管模式） |
-| GET `servers/:id/enrollment?id=…` | 验证指定安装的兑换与首个心跳 |
-| POST `enroll` | 单次兑换安装凭证，无需浏览器登录；轮换长期探针凭证 |
-| POST `report` | Agent 上报，默认最短 4 秒间隔 |
-| POST `analyze` | AI 或明确标识的规则摘要 |
-| POST `telegram-test` | 管理员触发测试通知 |
-| POST `sweep` | 当前用户巡检 |
-| POST `cron` | 全部用户巡检，仅 CRON_TOKEN |
-
-## 验证
-
-```bash
 pnpm exec tsc --noEmit
+pnpm build:vps
 node --test tests/backend.test.mjs
+node --test tests/vps.test.mjs
+node scripts/test-fleet-ui.mjs
 python3 tests/agent-network.test.py
-python3 -m py_compile agent/*.py
-bash -n agent/install.sh agent/configure.sh agent/uninstall.sh public/agent/install.sh
-pnpm build
 ```
 
-已执行：生产构建、TypeScript 检查、后端 24 组集成场景及 2 组探针三网测试、自托管 Worker 打包 dry-run、Linux `/proc` 实际读取与 Shell 语法检查。后端测试使用真正的 SQLite 和生产处理函数，外部 Telegram 请求使用 stub，不会实际发送消息。当前环境缺少受支持的浏览器预览服务，因此没有完成浏览器视觉验收；没有实际服务器 / Telegram / AI 密钥，不宣称端到端联调已完成。
+| 目录 | 内容 |
+| --- | --- |
+| `app` / `components/prism` | 页面、卡片、地球与设置 |
+| `lib` | 认证、监控、告警、汇率与集成 |
+| `vps` / `deploy/vps` | Node.js 后端、Docker 与 SSH 管理脚本 |
+| `agent` | Linux 探针与安装/更新/卸载 |
+| `tests` | 后端、界面输出、探针与部署检查 |
 
-## GitHub
+仓库仍保留 Cloudflare Workers / D1 部署代码，VPS 用户无需配置 Cloudflare。未实现 Windows/macOS 探针、Web SSH、自动修复及集群高可用。不把单元测试通过视为所有发行版和真实服务端到端验证。第三方资源许可保留在各资源目录。
 
-项目包含完整源码与 CI。源码目标仓库：[lxfcx/VPSBOT](https://github.com/lxfcx/VPSBOT)。该仓库为公开仓库，仅存放程序源码和示例配置。不要把 `.env`、`.dev.vars`、个人部署配置、`node_modules`、数据库或构建缓存推送到仓库。
+<a id="contact"></a>
+## 📮 联系作者
 
-参考：[Komari](https://github.com/komari-monitor/komari)、[Cloudflare Cron](https://developers.cloudflare.com/workers/configuration/cron-triggers/)、[IPinfo](https://ipinfo.io/developers/ipinfo-api)。未复制 Komari 源码。
+如需部署帮助、功能定制、问题反馈，请联系作者：
 
-## v0.1 升级
+- 👤 Telegram：[@lxfcx6](https://t.me/lxfcx6)
+- 🧩 项目作者：**LXFCX**
+- 📦 GitHub：[lxfcx/VPSBOT](https://github.com/lxfcx/VPSBOT)
+- 🐛 问题反馈：[提交 Issue](https://github.com/lxfcx/VPSBOT/issues)
 
-应用新增 `drizzle/0001_shallow_thundra.sql`，保留原始迁移。该迁移只新增数据表及带默认值的字段，不重建或清空原服务器表。已有节点按原先的指定到期和限量流量规则兼容。新增 R2 `FILES` 绑定：自托管先创建 `prism-files` 桶，再重新生成部署配置并应用增量迁移。
-
-## v0.2 升级到 v0.3
-
-应用增量迁移 `drizzle/0002_watery_polaris.sql` 新增安装凭证表。重新运行 `node scripts/package-agent.mjs`、构建、生成自托管配置、应用 D1 迁移，然后部署；已有服务器数据保留。无需修改旧迁移或重新安装全部探针。
+反馈请附上部署方式、版本、系统、报错与已隐藏敏感信息的截图或日志；不要公开密码、Bot Token、API Key 或探针安装凭证。
