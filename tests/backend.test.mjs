@@ -5,7 +5,7 @@ import {readFileSync,writeFileSync,rmSync,mkdirSync} from 'node:fs';
 import ts from 'typescript';
 // Compile the actual production handlers; replace only the Cloudflare environment binding.
 mkdirSync('tests/.compiled',{recursive:true});
-for(const f of ['model','accounts','profile','geo','telemetry','network','exchange','public-view','traffic-summary','backend']){let source=readFileSync(`lib/${f}.ts`,'utf8').replace("import { env } from 'cloudflare:workers';","const env = globalThis.TEST_ENV;").replace(/from ['"]\.\/(model|accounts|profile|geo|telemetry|exchange|public-view|traffic-summary)['"]/g,"from './$1.mjs'");writeFileSync(`tests/.compiled/${f}.mjs`,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)}
+for(const f of ['model','accounts','profile','geo','telemetry','network','exchange','public-view','traffic-summary','node-history','backend']){let source=readFileSync(`lib/${f}.ts`,'utf8').replace("import { env } from 'cloudflare:workers';","const env = globalThis.TEST_ENV;").replace(/from ['"]\.\/(model|accounts|profile|geo|telemetry|exchange|public-view|traffic-summary|node-history)['"]/g,"from './$1.mjs'");writeFileSync(`tests/.compiled/${f}.mjs`,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)}
 const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0000_tidy_imperial_guard.sql','utf8'));sqlite.exec(readFileSync('drizzle/0001_shallow_thundra.sql','utf8'));sqlite.exec(readFileSync('drizzle/0002_watery_polaris.sql','utf8'));
 function statement(sql,params=[]){return {bind(...args){return statement(sql,args)},async first(){return sqlite.prepare(sql).get(...params)||null},async all(){return {results:sqlite.prepare(sql).all(...params)}},async run(){const r=sqlite.prepare(sql).run(...params);return {meta:{changes:r.changes}}}}}
 globalThis.TEST_ENV={DB:{prepare:statement,async batch(items){sqlite.exec('BEGIN');try{const out=[];for(const item of items)out.push(await item.run());sqlite.exec('COMMIT');return out}catch(e){sqlite.exec('ROLLBACK');throw e}}},AUTH_MODE:'token',ADMIN_TOKEN:'test-admin-not-a-real-secret',CRON_TOKEN:'test-cron-not-a-real-secret'};
@@ -208,5 +208,26 @@ await test('public daily traffic is read-only and returns measured aggregates wi
  const result=await(await call('public/traffic','GET',undefined,{})).json();const measured=result.rows.find(r=>r.server===node.id);assert.equal(measured.tx,240);assert.equal(measured.rx,480);assert.equal(measured.samples,4);assert.equal(result.timezone,'UTC');assert.equal(result.partial,true);assert.ok(Array.isArray(result.rows));
  assert.equal(JSON.stringify(result).includes('bootId'),false);
  await assert.rejects(()=>call('public/traffic','DELETE',{},{}),/UNAUTHORIZED/);
+});
+await test('three-second heartbeat accepted while duplicate bursts are rejected',async()=>{
+ const n=await(await call('servers','POST',{name:'Fast sample',autoGeo:false})).json();
+ const first=await call('report','POST',metric,{Authorization:'Bearer '+n.token});assert.equal((await first.json()).interval,3);
+ assert.equal((await call('report','POST',metric,{Authorization:'Bearer '+n.token})).status,429);
+ sqlite.prepare('UPDATE servers SET seen=seen-3 WHERE id=?').run(n.id);
+ assert.equal((await call('report','POST',{...metric,cpu:42},{Authorization:'Bearer '+n.token})).status,200);
+ assert.equal((await(await call('public/dashboard','GET',undefined,{})).json()).servers.find(s=>s.id===n.id).metrics.cpu,42);
+});
+await test('public detail history validates scope, hides destinations and supports ranges',async()=>{
+ const n=await(await call('servers','POST',{name:'History details',autoGeo:false})).json();
+ const stamp=Math.floor(Date.now()/1000);sqlite.prepare('INSERT INTO samples(id,server,time,value) VALUES (?,?,?,?)').run('visible-history',n.id,stamp,JSON.stringify({...metric,bootId:'secret-boot',checks:[{name:'private-check',target:'192.0.2.4:443',ms:12,loss:0}]}));
+ const response=await call('public/nodes/'+n.id+'/history?range=3600','GET',undefined,{});assert.equal(response.status,200);const h=await response.json();assert.equal(h.length,1);assert.equal(h[0].cpu,15);assert.equal(h[0].bootId,undefined);assert.equal(h[0].checks[0].target,undefined);assert.equal(h[0].checks[0].name,'线路 1');
+ assert.equal((await call('public/nodes/missing/history','GET',undefined,{})).status,404);
+ await assert.rejects(()=>call('public/nodes/'+n.id+'/history?range=999999999','GET',undefined,{}));
+ const {bytes}=await import('./.compiled/model.mjs');assert.equal(bytes(1024**4),'1.0 TB');assert.equal(bytes(1023*1024**3),'1023.0 GB');
+});
+await test('fiat fallback remains honest about unsupported stablecoin quotes',async()=>{
+ const {exchangeRates}=await import('./.compiled/exchange.mjs?fallback');const urls=[];
+ globalThis.fetch=async(url)=>{urls.push(url);if(String(url).includes('coinbase'))return new Response('{}',{status:503});return new Response(JSON.stringify({result:'success',base_code:'USD',rates:{USD:1,CNY:7.1,EUR:.9,GBP:.8}}))};
+ const result=await exchangeRates();assert.equal(result.source,'ExchangeRate-API');assert.equal(result.rates.CNY,7.1);assert.equal(result.rates.USDT,undefined);assert.equal(urls.length,2);await exchangeRates();assert.equal(urls.length,2);
 });
 sqlite.close();rmSync('tests/.compiled',{recursive:true});

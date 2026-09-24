@@ -1,6 +1,7 @@
 export type Carrier='telecom'|'unicom'|'mobile';
 export type NetworkTarget={carrier:Carrier;name:string;host:string;port:number};
 export type Metrics = {
+    cpuModel?:string; virtualization?:string; processes?:number;
     trafficBasis?:string;
     cpu: number;
     memory: number;

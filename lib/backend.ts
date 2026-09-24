@@ -1,3 +1,4 @@
+import {nodeHistory} from './node-history';
 import {dailyTraffic} from './traffic-summary';
 import {exchangeRates} from './exchange';
 import {viewerServer} from './public-view';
@@ -23,7 +24,7 @@ export async function config(o: string) { const row = await db().prepare('SELECT
     value: string;
 }>(); return { ...defaults, ...(row ? JSON.parse(row.value) : {}) }; }
 const pct = z.number().finite().min(0).max(100), num = z.number().finite().nonnegative();
-export const metricSchema = z.object({ cpu: pct, memory: pct, disk: pct, swap: pct, load: num, cores: z.number().int().min(1).max(4096), memoryTotal: num, diskTotal: num, upload: num, download: num, tx: num, rx: num, tcp: num, udp: num, uptime: num, os: z.string().max(200), kernel: z.string().max(200), arch: z.string().max(50), bootId: z.string().max(100).optional(), provider: z.string().max(100).optional(), checks: z.array(z.object({ name: z.string().max(50), ms: num.nullable(), loss: pct,carrier:z.enum(['telecom','unicom','mobile']).optional(),target:z.string().max(300).optional() })).max(10), disks: z.array(z.object({ path: z.string().max(300), total: num, used: num, percent: pct })).max(30).optional() });
+export const metricSchema = z.object({ cpu: pct, memory: pct, disk: pct, swap: pct, load: num, cores: z.number().int().min(1).max(4096), memoryTotal: num, diskTotal: num, upload: num, download: num, tx: num, rx: num, tcp: num, udp: num, uptime: num, os: z.string().max(200), kernel: z.string().max(200), arch: z.string().max(50), cpuModel:z.string().max(200).optional(),virtualization:z.string().max(100).optional(),processes:num.optional(), bootId: z.string().max(100).optional(), provider: z.string().max(100).optional(), checks: z.array(z.object({ name: z.string().max(50), ms: num.nullable(), loss: pct,carrier:z.enum(['telecom','unicom','mobile']).optional(),target:z.string().max(300).optional() })).max(10), disks: z.array(z.object({ path: z.string().max(300), total: num, used: num, percent: pct })).max(30).optional() });
 const targetSchema=z.object({carrier:z.enum(['telecom','unicom','mobile']),name:z.string().trim().min(1).max(30),host:z.string().trim().min(1).max(253).regex(/^[A-Za-z0-9.:\-]+$/,'请填写域名或 IP，不包含协议和路径'),port:z.number().int().min(1).max(65535)});
 export const metaSchema = z.object({ networkTargets:z.array(targetSchema).max(3).refine(a=>new Set(a.map(x=>x.carrier)).size===a.length,'每个运营商仅配置一个测量目标').optional(),name: z.string().trim().min(1).max(100), group: z.string().max(50), country: z.string().regex(/^[A-Z]{2}$/), region: z.string().max(100), operator: z.string().max(200), network: z.string().max(100), note: z.string().max(2000), currency: z.enum(['USD', 'CNY', 'GBP', 'EUR', 'USDT', 'USDC']), price: num.max(1e8), cycle: z.union([z.literal(1), z.literal(3), z.literal(6), z.literal(12)]), expires: z.string().refine(x => !x || (/^\d{4}-\d{2}-\d{2}$/.test(x) && !isNaN(Date.parse(x)))), quota: num.max(1e9), resetDay: z.number().int().min(1).max(28), tags: z.string().max(300), maintenance: z.boolean().optional(), billingType: z.enum(['paid','free','one-time']).default('paid'), expiryMode: z.enum(['date','never','unknown']).default('date'), trafficMode: z.enum(['limited','unlimited','unknown']).default('limited'), trafficOffsetGb: num.max(1e9).default(0), trafficOffsetCycle:z.string().max(20).optional(), trafficCalibration:z.object({cycle:z.string().max(20),usedGb:num.max(1e9),baseline:num,at:num}).optional(), planNote:z.string().max(1000).default(''), provider:z.string().max(100).default(''), autoGeo:z.boolean().default(true), latitude:z.number().min(-90).max(90).nullable().optional(), longitude:z.number().min(-180).max(180).nullable().optional(), locationAccuracy:z.string().max(80).optional(), ip:z.string().max(80).optional(), asn:z.string().max(80).optional(), broadcast:z.string().max(100).optional(), osOverride:z.string().max(200).default('') });
 function publicServer(r:any){return {id:r.id,meta:JSON.parse(r.meta),metrics:r.metrics?JSON.parse(r.metrics):null,seen:r.seen,position:r.position,onlineSeconds:r.online_seconds||0,firstSeen:r.first_seen||0}}
@@ -104,6 +105,11 @@ export async function api(r: Request, path: string[]) {
     const publicAuth=await authPublic(r,route,db(),bindings().AUTH_MODE==='token'||bindings().ADMIN_TOKEN?'token':'sites');if(publicAuth)return publicAuth;
     if(route==='exchange-rates'&&r.method==='GET')return Response.json(await exchangeRates(),{headers:{'Cache-Control':'no-store'}});
     if(path[0]==='public'&&r.method==='GET'&&bindings().AUTH_MODE==='token'){
+        if(path[1]==='nodes'&&path[2]&&path[3]==='history'&&path.length===4){
+            const row=await db().prepare('SELECT id FROM servers WHERE id=? AND owner=?').bind(path[2],'admin').first();if(!row)return Response.json({error:'节点不存在'},{status:404});
+            const range=z.coerce.number().int().min(60).max(2592000).parse(new URL(r.url).searchParams.get('range')||1200);
+            return Response.json(await nodeHistory(db(),path[2],range,true),{headers:{'Cache-Control':'no-store'}});
+        }
         if(route==='public/traffic')return Response.json(await dailyTraffic(db(),'admin'),{headers:{'Cache-Control':'no-store'}});
         if(route==='public/dashboard'){
             const rows:any=await db().prepare('SELECT * FROM servers WHERE owner=? ORDER BY position,id').bind('admin').all();
@@ -130,7 +136,7 @@ export async function api(r: Request, path: string[]) {
         const row: any = await db().prepare('SELECT * FROM servers WHERE token=?').bind(await hash(token)).first();
         if (!row)
             return Response.json({ error: '无效探针凭证' }, { status: 401 });
-        if (now - row.seen < 4)
+        if (now - row.seen < 2)
             return Response.json({ error: '上报过快' }, { status: 429 });
         const raw = await r.text();
         if (raw.length > 32768)
@@ -156,7 +162,7 @@ export async function api(r: Request, path: string[]) {
             await event(row.owner, row.id, 'info', `${meta.name} · 检测到系统重新启动`);
         await evaluate(row, m, c, now);
         await deliver(row.owner);
-        return Response.json({ ok: true, interval: 10, networkTargets:meta.networkTargets||[] });
+        return Response.json({ ok: true, interval: 3, networkTargets:meta.networkTargets||[] });
     }
     if (route === 'cron' && r.method === 'POST') {
         const secret = bindings().CRON_TOKEN;
@@ -234,8 +240,8 @@ export async function api(r: Request, path: string[]) {
         }
         if(path[2]==='renew'&&r.method==='POST'){const input=z.object({expires:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(x=>!isNaN(Date.parse(x))),amount:z.number().min(0).max(1e8),currency:z.enum(['USD','CNY','GBP','EUR','USDT','USDC']),note:z.string().max(1000)}).parse(await r.json());const meta=JSON.parse(row.meta);if(meta.expiryMode==='never')return Response.json({error:'永久有效节点不需要续期；请先修改套餐类型。'},{status:400});const next={...meta,expires:input.expires,expiryMode:'date'};await db().batch([db().prepare('UPDATE servers SET meta=? WHERE id=? AND owner=?').bind(JSON.stringify(next),row.id,o),db().prepare('INSERT INTO audit(id,owner,server,time,category,action,detail) VALUES (?,?,?,?,?,?,?)').bind(crypto.randomUUID(),o,row.id,now,'billing','记录续期',JSON.stringify({name:meta.name,oldExpires:meta.expires,...input}))]);return Response.json({ok:true})}
         if (path[2] === 'history' && r.method === 'GET') {
-            const rows = await db().prepare('SELECT time,value FROM samples WHERE server=? ORDER BY time DESC LIMIT 360').bind(row.id).all();
-            return Response.json(rows.results.map((x: any) => ({ time: x.time, ...JSON.parse(x.value) })).reverse());
+            const range=z.coerce.number().int().min(60).max(2592000).parse(new URL(r.url).searchParams.get('range')||1200);
+            return Response.json(await nodeHistory(db(),row.id,range));
         }
         if (path[2] === 'token' && r.method === 'POST') {
             const token = crypto.randomUUID() + crypto.randomUUID();

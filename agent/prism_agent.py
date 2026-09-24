@@ -87,7 +87,7 @@ def remote_targets(base, incoming):
         if key not in active: del HISTORY[key]
     return combined
 
-def snapshot(previous, targets):
+def snapshot(previous, targets, cached_checks=None):
     ticks = cpu_ticks(); net = net_bytes(); stamp = time.monotonic()
     delta = max(1, ticks[0] - previous['ticks'][0])
     cpu = max(0, min(100, (1 - (ticks[1] - previous['ticks'][1]) / delta) * 100))
@@ -115,8 +115,11 @@ def snapshot(previous, targets):
         except OSError:
             pass
     elapsed = max(.001, stamp - previous['stamp'])
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-        checks = list(pool.map(probe, targets[:10]))
+    if cached_checks is None:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            checks = list(pool.map(probe, targets[:10]))
+    else:
+        checks = cached_checks
     m = {'cpu': round(cpu, 2), 'memory': round((1 - available / total) * 100, 2),
          'disk': round(root.used / max(1, root.total) * 100, 2),
          'swap': round((1 - mem.get('SwapFree', 0) / swap_total) * 100, 2) if swap_total else 0,
@@ -127,6 +130,9 @@ def snapshot(previous, targets):
          'tx': net[0], 'rx': net[1], 'tcp': connections('tcp'), 'udp': connections('udp'),
          'uptime': float(read('/proc/uptime').split()[0]), 'os': os_release(),
          'kernel': platform.release(), 'arch': platform.machine(),
+         'cpuModel': next((line.split(':', 1)[1].strip() for line in read('/proc/cpuinfo').splitlines() if line.startswith('model name')), platform.machine()),
+         'virtualization': (read('/sys/class/dmi/id/product_name').strip() or '未知')[:100],
+         'processes': sum(name.isdigit() for name in os.listdir('/proc')),
          'bootId': read('/proc/sys/kernel/random/boot_id').strip(),
          'provider': ('甲骨文 Oracle 云' if 'oracle' in (read('/sys/class/dmi/id/sys_vendor') + read('/sys/class/dmi/id/product_name')).lower() else ''), 'checks': checks, 'disks': mounts[:30]}
     return m, {'ticks': ticks, 'net': net, 'stamp': stamp}
@@ -153,23 +159,39 @@ def main():
     signal.signal(signal.SIGINT, lambda *_: stop())
     time.sleep(1)
     failures = 0
+    interval = 3
+    probe_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    probe_future = None
+    probe_stamp = 0
+    cached_checks = []
+    def collect_checks(items):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            return list(pool.map(probe, items[:10]))
     while not STOP:
         start = time.monotonic()
         try:
-            metrics, previous = snapshot(previous, targets)
+            if probe_future is not None and probe_future.done():
+                try: cached_checks = probe_future.result()
+                except (OSError, ValueError): cached_checks = []
+                probe_future = None
+            if probe_future is None and time.monotonic() - probe_stamp >= 10:
+                probe_future = probe_pool.submit(collect_checks, list(targets))
+                probe_stamp = time.monotonic()
+            metrics, previous = snapshot(previous, targets, cached_checks)
             req = urllib.request.Request(endpoint + '/api/monitor/report', data=json.dumps(metrics).encode(),
                                          headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token}, method='POST')
             with opener.open(req, timeout=25) as response:
                 if response.status != 200:
                     raise OSError('Unexpected response')
                 reply = json.loads(response.read(8192))
+                interval = max(3, min(60, int(reply.get('interval', 3))))
                 if 'networkTargets' in reply:
                     updated = remote_targets(base_targets, reply['networkTargets'])
                     if updated is not None: targets = updated
             failures = 0
         except (OSError, ValueError, urllib.error.HTTPError):
             failures += 1  # No payloads, secrets, persistent logs or local cache.
-        delay = min(60, max(10, 2 ** min(failures, 6)))
+        delay = min(60, max(interval, 2 ** min(failures, 6)))
         while not STOP and time.monotonic() - start < delay:
             time.sleep(.5)
 
