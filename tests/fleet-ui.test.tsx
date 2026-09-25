@@ -42,3 +42,12 @@ await test('overview keeps fixed units and a single combined asset action',()=>{
  const html=renderToStaticMarkup(<FleetSummary servers={[s]} settings={defaults}/>);
  assert.match(html,/1\.000/);assert.match(html,/MB\/s/);assert.match(html,/打开资产与续费提醒/);assert.doesNotMatch(html,/aria-label="打开到期提醒"|aria-label="打开资产与汇率换算"/);
 });
+
+await test('region localization and concise network labels preserve classification evidence',async()=>{
+ const {chineseRegion}=await import('../lib/regions');const {networkLabel}=await import('../lib/model');
+ assert.equal(chineseRegion('英国 · Slough'),'英国 · 斯劳');
+ assert.equal(chineseRegion('美国 · Unmapped City'),'美国');
+ assert.equal(networkLabel({...emptyMeta,operator:'NTT',network:'骨干 / 企业网络（家宽待核验）'}),'NTT骨干');
+ assert.equal(networkLabel({...emptyMeta,operator:'AT&T',network:'接入运营商（家宽待核验）',autoGeo:true}),'AT&T');
+ assert.equal(networkLabel({...emptyMeta,operator:'AT&T',network:'住宅网络（人工确认）',autoGeo:false}),'AT&T家宽');
+});
