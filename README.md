@@ -41,7 +41,9 @@
 curl -fsSL https://raw.githubusercontent.com/lxfcx/VPSBOT/main/deploy/vps/manage.sh -o vpsbot-install.sh && sudo bash vpsbot-install.sh install && rm -f vpsbot-install.sh
 ```
 
-脚本安装依赖、构建面板、创建持久化数据卷并启动 Caddy。域名和端口验证正常后，Caddy 自动申请与续期 HTTPS 证书。也可在 `install` 后追加自己的域名，跳过询问。
+脚本安装 Docker 等基础工具，从 GitHub Releases 下载已编译的 amd64 / arm64 镜像，校验后导入并启动。**VPS 不再安装 Node.js/pnpm、不执行前端编译**。首次安装 Docker 和下载镜像仍需要时间、磁盘和网络；不会再因源码编译产生大量 CPU/内存占用。镜像由 GitHub Actions 构建，发布前检查容器健康。
+
+安装前检查 80/443 是否空闲，冲突时停止；启动后验证域名 HTTPS，验证失败不会宣称网站可用。域名和端口验证正常后，Caddy 自动申请与续期 HTTPS 证书。也可在 `install` 后追加自己的域名，跳过询问。
 
 ### 🔐 首次访问
 
@@ -63,7 +65,13 @@ curl -fsSL https://raw.githubusercontent.com/lxfcx/VPSBOT/main/deploy/vps/manage
 sudo vpsbot update
 ```
 
-更新前自动备份，保留账号、服务器、设置、图片和数据库。备份会短暂停止面板；源码存在本地修改时停止更新，不覆盖改动。
+更新使用预构建镜像，不在 VPS 上编译。更新前自动备份，保留账号、服务器、设置、图片和数据库。备份会短暂停止面板；源码存在本地修改时停止更新，不覆盖改动。
+
+旧版管理命令需要先刷新一次，之后才会使用免编译更新：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lxfcx/VPSBOT/main/deploy/vps/manage.sh -o /tmp/vpsbot-manage.sh && sudo install -m 755 /tmp/vpsbot-manage.sh /usr/local/bin/vpsbot && rm -f /tmp/vpsbot-manage.sh
+```
 
 ### 🟢 已配置 Nginx 的现有部署
 
@@ -78,7 +86,7 @@ docker compose -p vpsbot \
   up -d --build --no-deps panel
 ```
 
-此命令只重建面板，不启动 Caddy，不占用新的 80/443 端口。它不会自动生成备份；更新前请保存数据卷及部署配置。自定义反代部署不要使用上面的 `sudo vpsbot update`，该管理脚本目前不会自动加载 override 文件。
+此旧部署命令仍会在本机编译，只适用于已有自定义反代部署；新服务器请使用上面的免编译安装。它只重建面板，不启动 Caddy，不占用新的 80/443 端口。它不会自动生成备份；更新前请保存数据卷及部署配置。自定义反代部署不要使用上面的 `sudo vpsbot update`，该管理脚本目前不会自动加载 override 文件。
 
 更新后刷新网页即可。**更新面板不会自动替换其他服务器上的探针**，探针更新命令见下文。
 

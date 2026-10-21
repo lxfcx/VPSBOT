@@ -1,0 +1,61 @@
+name: Publish prebuilt panel
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', 'components/**', 'lib/**', 'vps/**', 'agent/**', 'public/**', 'drizzle/**', 'scripts/**', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'deploy/vps/**', '.github/workflows/panel-image.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: panel-image
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image on GitHub, not the VPS
+        run: docker build -f deploy/vps/Dockerfile -t vpsbot-panel:prebuilt .
+      - name: Smoke test image
+        run: |
+          docker run -d --name panel-test -e PUBLIC_URL=https://example.com -e ADMIN_TOKEN=ci-test-token-only vpsbot-panel:prebuilt
+          for attempt in $(seq 1 30); do
+            if docker exec panel-test node -e "fetch('http://localhost:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then break; fi
+            sleep 2
+          done
+          docker exec panel-test node -e "fetch('http://localhost:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+          docker rm -f panel-test
+      - name: Export with checksum
+        run: |
+          docker save vpsbot-panel:prebuilt | gzip -1 > vpsbot-panel-linux-${{ matrix.arch }}.tar.gz
+          sha256sum vpsbot-panel-linux-${{ matrix.arch }}.tar.gz > vpsbot-panel-linux-${{ matrix.arch }}.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panel-${{ matrix.arch }}
+          path: vpsbot-panel-linux-*
+          retention-days: 2
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: panel-*
+          merge-multiple: true
+          path: images
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "panel-${GITHUB_SHA}" images/* --target "$GITHUB_SHA" --title "VPS panel ${GITHUB_SHA:0:7}" --notes "Prebuilt Linux amd64 and arm64 images. Installation does not compile on the VPS. Checksums included." --latest

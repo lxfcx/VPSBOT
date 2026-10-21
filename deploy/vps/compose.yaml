@@ -1,5 +1,6 @@
 services:
   panel:
+    image: vpsbot-panel:prebuilt
     build:
       context: ../..
       dockerfile: deploy/vps/Dockerfile
