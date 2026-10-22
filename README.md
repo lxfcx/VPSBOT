@@ -230,6 +230,39 @@ docker ps --format 'table {{.Names}}\t{{.Ports}}'
 
 在该节点检查 `systemctl status prism-agent`，确认其可访问面板 HTTPS 地址，并更新旧探针。仅更新面板不会升级远端程序。
 
+**❓ Debian 11 探针反复重启，提示 `%d/config` 或配置读取权限错误？**
+
+已在 Debian 11 / Python 3.9.2 / systemd 247 环境确认：旧安装脚本中的 `Environment=PRISM_CONFIG=%d/config` 无法解析，探针退回读取 root 专属配置，出现 `PermissionError: /etc/prism-agent/config.json`。这不是面板端口冲突，也不能据此判断 Token 无效。
+
+在**无法上报的探针服务器**上执行以下兼容修复，无需重装、不改 Token、不放宽密钥文件权限：
+
+```bash
+sudo bash <<'SH'
+set -eu
+mkdir -p /etc/systemd/system/prism-agent.service.d
+cat > /etc/systemd/system/prism-agent.service.d/99-credentials-compat.conf <<'EOF'
+[Service]
+Environment=PRISM_CONFIG=/run/credentials/prism-agent.service/config
+EOF
+systemctl daemon-reload
+systemctl restart prism-agent
+sleep 8
+systemctl --no-pager --full status prism-agent
+SH
+```
+
+✅ 显示 `active (running)` 后，返回面板等待约 10～15 秒，确认节点在线且 CPU、内存数据持续更新。该修复已实际恢复上报，配置在服务器重启后仍然有效。日志中修复前的失败记录不表示当前仍失败；主服务文件仍含旧写法时可能继续出现解析警告，但上述覆盖配置会提供正确路径。
+
+⚠️ 不要使用 `chmod 644 /etc/prism-agent/config.json` 解决权限问题；凭证应保持仅 root 可读，由 systemd 安全提供给探针。此命令针对这里的凭证路径兼容问题，不是所有离线故障的通用修复。
+
+**🔎 仍未上报时如何检查？**
+
+- 查看服务：`sudo systemctl --no-pager --full status prism-agent`。
+- 查看日志：`sudo journalctl -u prism-agent --no-pager -n 50`。旧安装脚本关闭了标准错误输出，因此日志可能只有重启记录，不能据此认定没有异常。
+- 检查面板：`curl -fsS https://你的面板域名/healthz`，正常应返回 `{"ok":true}`；请替换成实际域名和端口。
+- 未携带凭证访问上报接口得到 401，不代表已安装探针的 Token 错误；服务运行也不等于上报成功，应以面板数据持续刷新为准。
+- 换过面板服务器时，核对域名解析、HTTPS 和节点凭证；需要重新绑定时，从新面板该节点的编辑页面重新生成安装命令。不要公开配置文件或安装命令中的密钥。
+
 **❓ `curl` 不存在？**
 
 Debian / Ubuntu：
