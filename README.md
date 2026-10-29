@@ -105,6 +105,21 @@ docker compose -p vpsbot \
 
 备份含数据库和部署密钥，请妥善保管，并复制到其他主机。卸载会删除面板目录内的备份。
 
+**❓ 更新提示 `tar: /data: Cannot open: Permission denied`？**
+
+旧管理脚本以 root 运行备份，但数据目录属于 node 且权限为 0700；容器禁用越权能力后，root 无法读取该目录。新版已改用数据所属的 node 用户备份。出现“备份失败，未继续更新”时，脚本会尝试重新启动原面板，未执行后续更新。
+
+默认一键部署用户在面板服务器执行以下命令，刷新管理脚本并重新更新（保留数据、先备份再更新）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lxfcx/VPSBOT/main/deploy/vps/manage.sh -o /tmp/vpsbot-manage.sh && \
+sudo install -m 755 /tmp/vpsbot-manage.sh /usr/local/bin/vpsbot && \
+rm -f /tmp/vpsbot-manage.sh && \
+sudo vpsbot update
+```
+
+不要通过放宽数据目录权限、启用特权容器或跳过备份来解决。此命令不适用于使用自定义 Compose 覆盖文件的 Nginx 部署。
+
 现有 Nginx 部署查看状态或日志：
 
 ```bash

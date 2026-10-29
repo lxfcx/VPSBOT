@@ -66,7 +66,8 @@ backup(){
  mkdir -p "$stamp"
  compose stop panel
  # Always resume the panel if the archive step fails; updates never erase data.
- if compose run --rm --no-deps --user root --entrypoint tar panel -C /data -czf - . > "$stamp/data.tar.gz"; then
+ # /data is node-owned (0700). With cap_drop: ALL, root cannot bypass it.
+ if compose run --rm --no-deps --user node --entrypoint tar panel -C /data -czf - . > "$stamp/data.tar.gz"; then
   cp "$APP/deploy/vps/.env" "$stamp/panel.env"
   git -C "$APP" rev-parse HEAD > "$stamp/commit.txt"
   compose start panel
