@@ -229,3 +229,15 @@ body{font-size:15px}.app-shell{font-size:15px;line-height:1.55}.sidebar nav butt
 .node-table-row .node-table-node>.dense-actions{display:flex;flex-direction:column}
 .node-table-price{display:flex;justify-content:center;align-items:center}
 .node-table-row .node-table-price .price-badge{margin:0;max-width:100%;flex-wrap:wrap;justify-content:center}
+
+/* Real sample waveforms: no segmented activity strip or area fill. */
+.rate-wave .sparkline{background:none;border-bottom:0;overflow:hidden}
+.rate-wave .sparkline path[stroke-width]{stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.rate-wave-caption{display:flex;justify-content:space-between;align-items:center;gap:4px;font-size:10px;min-width:0;color:var(--muted-foreground)}
+.rate-wave-caption>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rate-wave-caption>small{display:flex;align-items:center;gap:4px;white-space:nowrap;font-size:10px;color:inherit}
+.rate-wave-caption>small>i{width:5px;height:5px;border-radius:50%;background:currentColor}
+.app-shell .rate-wave.trend-download{color:#b193e5}
+.app-shell.theme-light .rate-wave.trend-download{color:#8653bd}
+.node-table-row .rate-wave .sparkline,.node-table-row .rate-wave .sparkline svg{height:26px}
+.node-table-row .rate-wave-caption{display:none}
