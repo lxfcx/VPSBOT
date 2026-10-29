@@ -210,3 +210,12 @@ body{font-size:15px}.app-shell{font-size:15px;line-height:1.55}.sidebar nav butt
 
 /* Restore secondary fact hierarchy without shrinking primary labels. */
 .app-shell .server-card .metric-detail,.app-shell .server-card .metric-detail span,.app-shell .server-card .metric-detail b{font-size:12px;font-weight:500;line-height:1.55}.app-shell .server-card .metric-label{font-size:14px;font-weight:650}.app-shell .server-name-line .card-tags .status,.app-shell .dense-card header .dense-tags>span:first-child{font-size:13px;font-weight:800;max-width:none}.app-shell .dense-identity{justify-content:flex-start;gap:5px}.app-shell .dense-identity>button.adjacent-os{flex-shrink:0;overflow:visible;display:inline-flex;padding:2px}.agent-uninstall-help{margin:18px 0;padding:14px;border:1px solid var(--border);border-radius:12px}.agent-uninstall-help h3{font-size:15px;color:#c399df}.agent-uninstall-help .code-box code{overflow-wrap:anywhere;white-space:pre-wrap}.app-shell .server-name-line>button:first-child{flex:0 1 auto}.app-shell .server-name-line .system-icon-button{flex-shrink:0}.app-shell .server-name-line .card-tags{margin-left:auto}
+/* Keep telemetry inside narrow cards without clipping the live trend. */
+.dense-strip>div:first-child{grid-template-columns:repeat(2,minmax(0,1fr))}
+.mini-network{grid-template-columns:repeat(2,minmax(0,1fr))}
+.mini-network>div,.mini-network>span,.dense-rates>*{min-width:0}
+.rate-trend,.rate-trend .sparkline,.rate-trend .sparkline svg{max-width:100%}
+.rate-dots-row{gap:6px;min-width:0}
+.rate-dot-track{display:grid;grid-template-columns:repeat(18,minmax(0,1fr));gap:2px}
+.rate-dot-track>i{width:100%;min-width:0;justify-self:center}
+@media(max-width:600px){.density-mini .mini-network{grid-template-columns:minmax(0,1fr)}}
